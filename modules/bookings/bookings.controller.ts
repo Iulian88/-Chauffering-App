@@ -5,6 +5,7 @@ import {
   getOperatorBookings,
   getBooking,
   cancelBooking,
+  confirmBooking,
 } from './bookings.service';
 import { AppError } from '../../shared/errors/AppError';
 
@@ -50,5 +51,10 @@ export async function handleGetBooking(req: Request, res: Response): Promise<voi
 export async function handleCancelBooking(req: Request, res: Response): Promise<void> {
   const input = CancelBookingSchema.parse(req.body);
   const booking = await cancelBooking(req.params.id, input, req.user!);
+  res.json({ data: booking });
+}
+
+export async function handleConfirmBooking(req: Request, res: Response): Promise<void> {
+  const booking = await confirmBooking(req.params.id, req.user!);
   res.json({ data: booking });
 }

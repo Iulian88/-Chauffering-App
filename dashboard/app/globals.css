@@ -1,0 +1,55 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --font-inter: 'Inter', system-ui, sans-serif;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    background-color: #0B0B0C;
+    color: #F0F0F2;
+  }
+
+  /* Scrollbar — thin and muted */
+  ::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #1F1F23;
+    border-radius: 2px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: #3D3D45;
+  }
+
+  /* Remove default focus outline; use custom ring */
+  :focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(198, 169, 106, 0.3);
+  }
+
+  /* Table */
+  table {
+    border-collapse: collapse;
+    width: 100%;
+  }
+}

@@ -5,6 +5,7 @@ import {
   findTripById,
   findTripByIdForDriver,
   findActiveTripForBooking,
+  findTripsByOperator,
   updateTripStatus,
   insertDispatchLog,
 } from './trips.repository';
@@ -50,6 +51,11 @@ function timestampFieldFor(status: TripStatus): Record<string, string> {
 // ─── Create trip (operator dispatches a booking) ──────────────────────────────
 // NOTE: concurrency safety is enforced here in application layer.
 // For production, prefer the DB-level assign_driver_to_trip() function instead.
+export async function listTrips(user: AuthUser): Promise<Trip[]> {
+  if (!user.operator_id) throw AppError.forbidden('No operator scope');
+  return findTripsByOperator(user.operator_id);
+}
+
 export async function createTrip(input: CreateTripInput, user: AuthUser): Promise<Trip> {
   if (!user.operator_id) throw AppError.forbidden('No operator scope');
 

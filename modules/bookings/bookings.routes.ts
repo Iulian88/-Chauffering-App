@@ -5,6 +5,7 @@ import {
   handleListBookings,
   handleGetBooking,
   handleCancelBooking,
+  handleConfirmBooking,
 } from './bookings.controller';
 
 const router = Router();
@@ -31,6 +32,14 @@ router.get(
   requireAuth,
   requireRole('client', 'operator_admin', 'operator_dispatcher'),
   handleGetBooking,
+);
+
+// Confirm booking — operator only
+router.patch(
+  '/:id/confirm',
+  requireAuth,
+  requireRole('operator_admin', 'operator_dispatcher'),
+  handleConfirmBooking,
 );
 
 // Cancel booking — client or operator

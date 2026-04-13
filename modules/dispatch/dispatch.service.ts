@@ -90,22 +90,47 @@ export async function getAvailableDriversForBooking(
   const booking = await findBookingById(bookingId, user.operator_id);
   if (!booking) throw AppError.notFound('Booking');
 
-  // Find available drivers with a vehicle matching the booking segment
-  const { data, error } = await supabase
+  // 1. Find available drivers with a matching-segment vehicle
+  const { data: drivers, error } = await supabase
     .from('drivers')
-    .select(`
-      id,
-      user_id,
-      availability_status,
-      user_profiles!inner(full_name, phone),
-      vehicles!inner(id, plate, make, model, segment)
-    `)
+    .select('id, user_id, license_number, availability_status')
     .eq('operator_id', user.operator_id)
     .eq('is_active', true)
-    .eq('availability_status', 'available')
-    .eq('vehicles.segment', booking.segment)
-    .eq('vehicles.is_active', true);
+    .eq('availability_status', 'available');
 
   if (error) throw AppError.internal(error.message);
-  return data ?? [];
+  if (!drivers || drivers.length === 0) return [];
+
+  // 2. Fetch user_profiles for name/phone display
+  const userIds = drivers.map((d: Record<string, unknown>) => d.user_id as string);
+  const { data: profiles } = await supabase
+    .from('user_profiles')
+    .select('id, full_name, phone')
+    .in('id', userIds);
+
+  const profileMap = new Map(
+    (profiles ?? []).map((p: { id: string; full_name: string; phone: string | null }) => [p.id, p]),
+  );
+
+  // 3. Fetch vehicles for these drivers that match the booking segment
+  const driverIds = drivers.map((d: Record<string, unknown>) => d.id as string);
+  const { data: vehicles } = await supabase
+    .from('vehicles')
+    .select('id, plate, make, model, year, segment, assigned_driver_id')
+    .in('assigned_driver_id', driverIds)
+    .eq('segment', booking.segment)
+    .eq('is_active', true);
+
+  const vehicleMap = new Map(
+    (vehicles ?? []).map((v: Record<string, unknown>) => [v.assigned_driver_id as string, v]),
+  );
+
+  // 4. Merge and only return drivers that have a matching vehicle
+  return drivers
+    .filter((d: Record<string, unknown>) => vehicleMap.has(d.id as string))
+    .map((d: Record<string, unknown>) => ({
+      ...d,
+      user_profiles: profileMap.get(d.user_id as string) ?? null,
+      vehicles: [vehicleMap.get(d.id as string)].filter(Boolean),
+    }));
 }

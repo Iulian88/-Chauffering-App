@@ -3,7 +3,8 @@ import { Driver, DriverAvailabilityStatus } from '../../shared/types/domain';
 import { AppError } from '../../shared/errors/AppError';
 
 export async function findDriversByOperator(operator_id: string): Promise<Driver[]> {
-  const { data, error } = await supabase
+  // 1. Fetch drivers
+  const { data: drivers, error } = await supabase
     .from('drivers')
     .select('*')
     .eq('operator_id', operator_id)
@@ -11,7 +12,25 @@ export async function findDriversByOperator(operator_id: string): Promise<Driver
     .order('created_at', { ascending: false });
 
   if (error) throw AppError.internal(error.message);
-  return (data ?? []) as Driver[];
+  if (!drivers || drivers.length === 0) return [];
+
+  // 2. Fetch matching user_profiles (user_profiles.id = drivers.user_id)
+  const userIds = drivers.map((d: Record<string, unknown>) => d.user_id as string);
+  const { data: profiles } = await supabase
+    .from('user_profiles')
+    .select('id, full_name, phone')
+    .in('id', userIds);
+
+  const profileMap = new Map(
+    (profiles ?? []).map((p: { id: string; full_name: string; phone: string | null }) => [p.id, p]),
+  );
+
+  // 3. Merge
+  return drivers.map((d: Record<string, unknown>) => ({
+    ...d,
+    user_profiles: profileMap.get(d.user_id as string) ?? null,
+    vehicles: null,
+  })) as unknown as Driver[];
 }
 
 export async function findDriverById(id: string, operator_id: string): Promise<Driver | null> {

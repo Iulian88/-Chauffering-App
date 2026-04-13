@@ -2,6 +2,17 @@ import { supabase } from '../../shared/db/supabase.client';
 import { Trip, TripStatus } from '../../shared/types/domain';
 import { AppError } from '../../shared/errors/AppError';
 
+export async function findTripsByOperator(operator_id: string): Promise<Trip[]> {
+  const { data, error } = await supabase
+    .from('trips')
+    .select('*')
+    .eq('operator_id', operator_id)
+    .order('assigned_at', { ascending: false });
+
+  if (error) throw AppError.internal(error.message);
+  return (data ?? []) as Trip[];
+}
+
 export async function insertTrip(
   data: Omit<Trip, 'id' | 'created_at' | 'updated_at' | 'assigned_at' | 'accepted_at' | 'en_route_at' | 'arrived_at' | 'completed_at' | 'refused_at' | 'refusal_reason'>,
 ): Promise<Trip> {

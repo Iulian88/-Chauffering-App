@@ -1,31 +1,21 @@
 # Dependencies
 node_modules/
-dashboard/node_modules/
 
 # Build output
-dist/
-dashboard/.next/
-dashboard/out/
+.next/
+out/
 
-# Environment variables
-.env
+# Environment
 .env.local
 .env.*.local
 
 # TypeScript build info
+tsconfig.tsbuildinfo
 *.tsbuildinfo
 
-# Logs
-*.log
+# Debug
 npm-debug.log*
 
 # OS
 .DS_Store
 Thumbs.db
-
-# Editor
-.vscode/
-.idea/
-
-# Misc
-_ul

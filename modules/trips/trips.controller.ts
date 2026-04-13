@@ -5,12 +5,18 @@ import {
   UpdateTripStatusSchema,
 } from './trips.schema';
 import {
+  listTrips,
   createTrip,
   getTrip,
   acceptTrip,
   refuseTrip,
   advanceTripStatusByDriver,
 } from './trips.service';
+
+export async function handleListTrips(req: Request, res: Response): Promise<void> {
+  const trips = await listTrips(req.user!);
+  res.json({ data: trips, count: trips.length });
+}
 
 export async function handleCreateTrip(req: Request, res: Response): Promise<void> {
   const input = CreateTripSchema.parse(req.body);

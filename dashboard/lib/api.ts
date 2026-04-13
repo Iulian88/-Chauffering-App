@@ -1,0 +1,168 @@
+// ─── Domain types (mirrored from backend domain.ts) ─────────────────────────
+
+export interface Booking {
+  id: string
+  operator_id: string
+  client_user_id: string
+  pricing_rule_id: string | null
+  status: BookingStatus
+  segment: VehicleSegment
+  pickup_address: string
+  pickup_lat: number
+  pickup_lng: number
+  dropoff_address: string
+  dropoff_lat: number
+  dropoff_lng: number
+  stops: unknown | null
+  scheduled_at: string
+  price_estimate: number
+  price_final: number | null
+  currency: string
+  distance_km: number
+  duration_sec: number
+  pricing_snapshot: PricingSnapshot
+  cancellation_reason: string | null
+  cancelled_by: string | null
+  cancelled_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type BookingStatus =
+  | 'pending'
+  | 'confirmed'
+  | 'dispatched'
+  | 'in_progress'
+  | 'completed'
+  | 'cancelled'
+
+export type VehicleSegment = 'ride' | 'business' | 'executive' | 'office_lux' | 'prime_lux'
+
+export interface PricingSnapshot {
+  rule_id: string
+  base_fare: number
+  per_km_rate: number
+  per_min_rate: number
+  minimum_fare: number
+  surge_multiplier: number
+  currency: string
+}
+
+export interface Driver {
+  id: string
+  user_id: string
+  operator_id: string
+  availability_status: DriverAvailability
+  license_number: string
+  license_country: string
+  license_expires_at: string
+  is_active: boolean
+  created_at: string
+  updated_at: string
+  // Joined
+  user_profiles?: { full_name: string; phone: string | null }
+  vehicles?: Vehicle[]
+}
+
+export type DriverAvailability = 'available' | 'busy' | 'offline'
+
+export interface Vehicle {
+  id: string
+  operator_id: string
+  assigned_driver_id: string | null
+  segment: VehicleSegment
+  plate: string
+  make: string
+  model: string
+  year: number
+  color: string | null
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface Trip {
+  id: string
+  booking_id: string
+  driver_id: string
+  vehicle_id: string
+  operator_id: string
+  status: TripStatus
+  assigned_at: string
+  accepted_at: string | null
+  en_route_at: string | null
+  arrived_at: string | null
+  completed_at: string | null
+  refused_at: string | null
+  refusal_reason: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type TripStatus =
+  | 'assigned'
+  | 'accepted'
+  | 'en_route'
+  | 'arrived'
+  | 'completed'
+  | 'refused'
+  | 'cancelled'
+
+// ─── API client ──────────────────────────────────────────────────────────────
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000/api/v1'
+
+export function createApiClient(token: string) {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    'Content-Type': 'application/json',
+  }
+
+  async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
+    const res = await fetch(`${API_URL}${path}`, {
+      method,
+      headers,
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    })
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({})) as { message?: string }
+      throw new Error(payload.message ?? `Request failed (${res.status})`)
+    }
+    return res.json() as Promise<T>
+  }
+
+  return {
+    bookings: {
+      list: (params?: Record<string, string>) => {
+        const qs = params ? '?' + new URLSearchParams(params).toString() : ''
+        return req<{ data: Booking[] }>('GET', `/bookings${qs}`)
+      },
+      get: (id: string) =>
+        req<{ data: Booking }>('GET', `/bookings/${id}`),
+      confirm: (id: string) =>
+        req<{ data: Booking }>('PATCH', `/bookings/${id}/confirm`),
+      cancel: (id: string, reason?: string) =>
+        req<{ data: Booking }>('PATCH', `/bookings/${id}/cancel`, { cancellation_reason: reason }),
+    },
+    trips: {
+      list: () => req<{ data: Trip[] }>('GET', '/trips'),
+      get: (id: string) => req<{ data: Trip }>('GET', `/trips/${id}`),
+    },
+    drivers: {
+      list: () => req<{ data: Driver[] }>('GET', '/drivers'),
+      availableFor: (bookingId: string) =>
+        req<{ data: Driver[] }>('GET', `/dispatch/available-drivers/${bookingId}`),
+    },
+    vehicles: {
+      list: () => req<{ data: Vehicle[] }>('GET', '/vehicles'),
+    },
+    dispatch: {
+      assign: (booking_id: string, driver_id: string, vehicle_id: string) =>
+        req<{ data: Trip }>('POST', '/dispatch/assign', { booking_id, driver_id, vehicle_id }),
+      unassign: (tripId: string) =>
+        req<{ message: string }>('DELETE', `/dispatch/trips/${tripId}/unassign`),
+    },
+  }
+}
+
+export type ApiClient = ReturnType<typeof createApiClient>

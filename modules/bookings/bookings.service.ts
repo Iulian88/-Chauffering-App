@@ -109,6 +109,23 @@ export async function cancelBooking(
   });
 }
 
+// ─── Confirm (operator only) ─────────────────────────────────────────────────
+export async function confirmBooking(id: string, user: AuthUser): Promise<Booking> {
+  if (!user.operator_id) throw AppError.forbidden('No operator scope');
+
+  const booking = await findBookingById(id, user.operator_id);
+  if (!booking) throw AppError.notFound('Booking');
+
+  if (booking.status !== 'pending') {
+    throw AppError.unprocessable(
+      `Booking must be 'pending' to confirm (current: '${booking.status}')`,
+      'BOOKING_NOT_CONFIRMABLE',
+    );
+  }
+
+  return updateBookingStatus(id, user.operator_id, 'confirmed');
+}
+
 // ─── Internal: advance status (called by dispatch/trips services) ─────────────
 export async function setBookingStatus(
   id: string,

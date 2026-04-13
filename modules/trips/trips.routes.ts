@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireAuth, requireRole } from '../../shared/middleware/auth.middleware';
 import {
+  handleListTrips,
   handleCreateTrip,
   handleGetTrip,
   handleAcceptTrip,
@@ -9,6 +10,14 @@ import {
 } from './trips.controller';
 
 const router = Router();
+
+// Operator lists all trips in their scope
+router.get(
+  '/',
+  requireAuth,
+  requireRole('operator_admin', 'operator_dispatcher', 'superadmin'),
+  handleListTrips,
+);
 
 // Operator creates trip (dispatches booking to driver)
 router.post(

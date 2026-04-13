@@ -1,0 +1,115 @@
+'use client'
+
+import { useState, useEffect, useCallback } from 'react'
+import { useAuth } from '@/context/auth-context'
+import { createApiClient, type Booking } from '@/lib/api'
+import { BookingsTable } from '@/components/bookings/BookingsTable'
+import { DispatchModal } from '@/components/bookings/DispatchModal'
+import { PageHeader } from '@/components/layout/PageHeader'
+
+export default function BookingsPage() {
+  const { token } = useAuth()
+  const api = token ? createApiClient(token) : null
+
+  const [bookings, setBookings]     = useState<Booking[]>([])
+  const [loading, setLoading]       = useState(true)
+  const [error, setError]           = useState<string | null>(null)
+  const [dispatchId, setDispatchId] = useState<string | null>(null)
+
+  const fetchBookings = useCallback(async () => {
+    if (!api) return
+    setError(null)
+    try {
+      const { data } = await api.bookings.list()
+      setBookings(data)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load bookings')
+    } finally {
+      setLoading(false)
+    }
+  }, [token]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => { fetchBookings() }, [fetchBookings])
+
+  const handleConfirm = async (id: string) => {
+    if (!api) return
+    await api.bookings.confirm(id)
+    setBookings(prev => prev.map(b => b.id === id ? { ...b, status: 'confirmed' } : b))
+  }
+
+  const handleDispatchComplete = () => {
+    setDispatchId(null)
+    setLoading(true)
+    fetchBookings()
+  }
+
+  const pending    = bookings.filter(b => b.status === 'pending').length
+  const confirmed  = bookings.filter(b => b.status === 'confirmed').length
+
+  return (
+    <div className="px-8 py-8">
+      <PageHeader
+        title="Bookings"
+        subtitle="Manage incoming requests and dispatch assignments"
+        count={bookings.length}
+        actions={
+          pending > 0 ? (
+            <span className="text-xs text-secondary bg-card border border-border px-3 py-1.5 rounded-md">
+              {pending} pending · {confirmed} confirmed
+            </span>
+          ) : undefined
+        }
+      />
+
+      {loading ? (
+        <TableSkeleton />
+      ) : error ? (
+        <ErrorState message={error} onRetry={() => { setLoading(true); fetchBookings() }} />
+      ) : (
+        <BookingsTable
+          bookings={bookings}
+          onConfirm={handleConfirm}
+          onDispatch={id => setDispatchId(id)}
+        />
+      )}
+
+      {dispatchId && api && (
+        <DispatchModal
+          bookingId={dispatchId}
+          api={api}
+          onClose={() => setDispatchId(null)}
+          onSuccess={handleDispatchComplete}
+        />
+      )}
+    </div>
+  )
+}
+
+function TableSkeleton() {
+  return (
+    <div className="mt-6 rounded-xl border border-border overflow-hidden">
+      <div className="bg-card border-b border-border h-11" />
+      {Array.from({ length: 6 }).map((_, i) => (
+        <div key={i} className="h-[3.75rem] border-b border-border/40 bg-base flex items-center px-5 gap-6">
+          {[160, 140, 80, 110, 70, 70, 100].map((w, j) => (
+            <div key={j} className={`h-3 rounded bg-card animate-pulse`} style={{ width: w }} />
+          ))}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="mt-6 rounded-xl border border-red-900/30 bg-red-950/10 px-6 py-8 text-center">
+      <p className="text-sm text-red-400/80 mb-3">{message}</p>
+      <button
+        onClick={onRetry}
+        className="text-xs text-secondary hover:text-primary underline underline-offset-2"
+      >
+        Try again
+      </button>
+    </div>
+  )
+}
