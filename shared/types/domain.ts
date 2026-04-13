@@ -139,6 +139,11 @@ export interface Booking {
   distance_km: number;
   duration_sec: number;
   pricing_snapshot: PricingSnapshot;
+  channel: string;
+  partner: string;
+  client_price: number | null;
+  driver_price: number | null;
+  profit: number | null;
   cancellation_reason: string | null;
   cancelled_by: string | null;
   cancelled_at: string | null;

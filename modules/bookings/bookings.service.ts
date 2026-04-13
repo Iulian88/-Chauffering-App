@@ -33,6 +33,12 @@ export async function createBookingForClient(
     snapshot,
   });
 
+  const client_price = input.client_price ?? null;
+  const driver_price = input.driver_price ?? null;
+  const profit = client_price !== null && driver_price !== null
+    ? client_price - driver_price
+    : null;
+
   return createBooking({
     operator_id,
     client_user_id: user.id,
@@ -52,6 +58,11 @@ export async function createBookingForClient(
     distance_km: input.distance_km,
     duration_sec: input.duration_sec,
     pricing_snapshot: snapshot,
+    channel: input.channel ?? 'manual',
+    partner: input.partner ?? 'internal',
+    client_price,
+    driver_price,
+    profit,
     status_details: undefined,
   } as Parameters<typeof createBooking>[0]);
 }

@@ -22,6 +22,11 @@ export const CreateBookingSchema = z.object({
   // distance + duration provided by client (from Maps SDK) or computed server-side
   distance_km: z.number().positive(),
   duration_sec: z.number().int().positive(),
+  // ─── Commercial fields ────────────────────────────────────────────────────
+  channel: z.string().max(64).optional(),
+  partner: z.string().max(128).optional(),
+  client_price: z.number().nonnegative().optional(),
+  driver_price: z.number().nonnegative().optional(),
 });
 
 export const CancelBookingSchema = z.object({
