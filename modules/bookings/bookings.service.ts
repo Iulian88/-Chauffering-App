@@ -1,0 +1,119 @@
+import { Booking, BookingStatus, AuthUser } from '../../shared/types/domain';
+import { AppError } from '../../shared/errors/AppError';
+import { calculatePrice, defaultSnapshotForSegment } from '../pricing/pricing.service';
+import { getActiveRuleSnapshot } from '../pricing/pricing.repository';
+import {
+  createBooking,
+  findBookingById,
+  findBookingByIdForClient,
+  listBookings,
+  updateBookingStatus,
+  ListBookingsFilter,
+} from './bookings.repository';
+import { CreateBookingInput, CancelBookingInput } from './bookings.schema';
+
+// ─── Cancellable statuses ─────────────────────────────────────────────────────
+const CANCELLABLE_STATUSES: BookingStatus[] = ['pending', 'confirmed', 'dispatched'];
+
+// ─── Create ───────────────────────────────────────────────────────────────────
+export async function createBookingForClient(
+  input: CreateBookingInput,
+  user: AuthUser,
+  operator_id: string,
+): Promise<Booking> {
+  // Resolve pricing snapshot (fall back to defaults if no rule configured)
+  const snapshot =
+    (await getActiveRuleSnapshot(operator_id, input.segment)) ??
+    defaultSnapshotForSegment(input.segment);
+
+  const { price } = calculatePrice({
+    distance_km: input.distance_km,
+    duration_sec: input.duration_sec,
+    segment: input.segment,
+    snapshot,
+  });
+
+  return createBooking({
+    operator_id,
+    client_user_id: user.id,
+    pricing_rule_id: snapshot.rule_id === 'default' ? null : snapshot.rule_id,
+    status: 'pending',
+    segment: input.segment,
+    pickup_address: input.pickup_address,
+    pickup_lat: input.pickup_lat,
+    pickup_lng: input.pickup_lng,
+    dropoff_address: input.dropoff_address,
+    dropoff_lat: input.dropoff_lat,
+    dropoff_lng: input.dropoff_lng,
+    stops: input.stops ?? null,
+    scheduled_at: input.scheduled_at,
+    price_estimate: price,
+    currency: snapshot.currency,
+    distance_km: input.distance_km,
+    duration_sec: input.duration_sec,
+    pricing_snapshot: snapshot,
+    status_details: undefined,
+  } as Parameters<typeof createBooking>[0]);
+}
+
+// ─── List (operator) ──────────────────────────────────────────────────────────
+export async function getOperatorBookings(
+  filter: Omit<ListBookingsFilter, 'operator_id'>,
+  user: AuthUser,
+): Promise<Booking[]> {
+  if (!user.operator_id) throw AppError.forbidden('No operator scope');
+  return listBookings({ ...filter, operator_id: user.operator_id });
+}
+
+// ─── Get single ───────────────────────────────────────────────────────────────
+export async function getBooking(id: string, user: AuthUser): Promise<Booking> {
+  let booking: Booking | null = null;
+
+  if (user.role === 'client') {
+    booking = await findBookingByIdForClient(id, user.id);
+  } else {
+    if (!user.operator_id) throw AppError.forbidden('No operator scope');
+    booking = await findBookingById(id, user.operator_id);
+  }
+
+  if (!booking) throw AppError.notFound('Booking');
+  return booking;
+}
+
+// ─── Cancel ───────────────────────────────────────────────────────────────────
+export async function cancelBooking(
+  id: string,
+  input: CancelBookingInput,
+  user: AuthUser,
+): Promise<Booking> {
+  const booking = await getBooking(id, user);
+
+  if (!CANCELLABLE_STATUSES.includes(booking.status)) {
+    throw AppError.unprocessable(
+      `Booking in status '${booking.status}' cannot be cancelled`,
+      'BOOKING_NOT_CANCELLABLE',
+    );
+  }
+
+  // Clients can only cancel their own bookings
+  if (user.role === 'client' && booking.client_user_id !== user.id) {
+    throw AppError.forbidden('You can only cancel your own bookings');
+  }
+
+  const operator_id = booking.operator_id;
+
+  return updateBookingStatus(id, operator_id, 'cancelled', {
+    cancellation_reason: input.cancellation_reason ?? null,
+    cancelled_by: user.id,
+    cancelled_at: new Date().toISOString(),
+  });
+}
+
+// ─── Internal: advance status (called by dispatch/trips services) ─────────────
+export async function setBookingStatus(
+  id: string,
+  operator_id: string,
+  status: BookingStatus,
+): Promise<void> {
+  await updateBookingStatus(id, operator_id, status);
+}
