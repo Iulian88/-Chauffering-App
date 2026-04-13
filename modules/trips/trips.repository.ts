@@ -3,7 +3,7 @@ import { Trip, TripStatus } from '../../shared/types/domain';
 import { AppError } from '../../shared/errors/AppError';
 
 export async function insertTrip(
-  data: Omit<Trip, 'id' | 'created_at' | 'updated_at' | 'accepted_at' | 'en_route_at' | 'arrived_at' | 'completed_at' | 'refused_at' | 'refusal_reason'>,
+  data: Omit<Trip, 'id' | 'created_at' | 'updated_at' | 'assigned_at' | 'accepted_at' | 'en_route_at' | 'arrived_at' | 'completed_at' | 'refused_at' | 'refusal_reason'>,
 ): Promise<Trip> {
   const { data: trip, error } = await supabase
     .from('trips')

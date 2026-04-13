@@ -4,8 +4,6 @@ import 'express-async-errors';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
 
 import { errorHandler } from './shared/errors/errorHandler';
 
@@ -19,21 +17,12 @@ import tripRoutes from './modules/trips/trips.routes';
 import dispatchRoutes from './modules/dispatch/dispatch.routes';
 import pricingRoutes from './modules/pricing/pricing.routes';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
 const app = express();
 
 // ─── Security & parsing ───────────────────────────────────────────────────────
 app.use(helmet());
 app.use(cors({ origin: process.env.CORS_ORIGIN ?? '*' }));
 app.use(express.json());
-app.use(express.static('public'));
-
-// ─── Root route ───────────────────────────────────────────────────────────────
-app.get('/', (_req, res) => {
-  res.sendFile(join(__dirname, 'public', 'index.html'));
-});
 
 // ─── Health check ─────────────────────────────────────────────────────────────
 app.get('/health', (_req, res) => {

@@ -12,7 +12,7 @@
  *   driver:{driver_id}      — events targeted at a specific driver
  */
 
-import { supabase } from '../../shared/db/supabase.client';
+import { supabase } from './shared/db/supabase.client';
 
 export type RealtimeEventType =
   | 'booking.created'

@@ -8,7 +8,7 @@
  * the SDK if FIREBASE_SERVICE_ACCOUNT is not configured.
  */
 
-import { supabase } from '../../shared/db/supabase.client';
+import { supabase } from './shared/db/supabase.client';
 
 export type NotificationChannel = 'push' | 'sms' | 'email';
 
@@ -57,7 +57,8 @@ export async function sendNotification(input: SendNotificationInput): Promise<vo
 }
 
 // ─── Firebase push (lazy init) ────────────────────────────────────────────────
-let firebaseAdmin: typeof import('firebase-admin') | null = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let firebaseAdmin: any = null;
 
 async function getFirebaseAdmin() {
   if (firebaseAdmin) return firebaseAdmin;
@@ -66,6 +67,7 @@ async function getFirebaseAdmin() {
   if (!serviceAccountJson) return null;
 
   try {
+    // @ts-expect-error firebase-admin is an optional runtime dependency
     const admin = await import('firebase-admin');
     if (!admin.apps.length) {
       admin.initializeApp({
