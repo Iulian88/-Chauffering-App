@@ -112,6 +112,23 @@ export type TripStatus =
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000/api/v1'
 
+export interface CreateBookingBody {
+  segment: VehicleSegment
+  pickup_address: string
+  pickup_lat: number
+  pickup_lng: number
+  dropoff_address: string
+  dropoff_lat: number
+  dropoff_lng: number
+  scheduled_at: string
+  distance_km: number
+  duration_sec: number
+  channel?: string
+  partner?: string
+  client_price?: number
+  driver_price?: number
+}
+
 export function createApiClient(token: string) {
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,
@@ -139,6 +156,8 @@ export function createApiClient(token: string) {
       },
       get: (id: string) =>
         req<{ data: Booking }>('GET', `/bookings/${id}`),
+      create: (body: CreateBookingBody) =>
+        req<{ data: Booking }>('POST', '/bookings', body),
       confirm: (id: string) =>
         req<{ data: Booking }>('PATCH', `/bookings/${id}/confirm`),
       cancel: (id: string, reason?: string) =>

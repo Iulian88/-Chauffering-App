@@ -5,16 +5,18 @@ import { useAuth } from '@/context/auth-context'
 import { createApiClient, type Booking } from '@/lib/api'
 import { BookingsTable } from '@/components/bookings/BookingsTable'
 import { DispatchModal } from '@/components/bookings/DispatchModal'
+import { CreateBookingModal } from '@/components/bookings/CreateBookingModal'
 import { PageHeader } from '@/components/layout/PageHeader'
 
 export default function BookingsPage() {
   const { token } = useAuth()
   const api = token ? createApiClient(token) : null
 
-  const [bookings, setBookings]     = useState<Booking[]>([])
-  const [loading, setLoading]       = useState(true)
-  const [error, setError]           = useState<string | null>(null)
-  const [dispatchId, setDispatchId] = useState<string | null>(null)
+  const [bookings, setBookings]       = useState<Booking[]>([])
+  const [loading, setLoading]         = useState(true)
+  const [error, setError]             = useState<string | null>(null)
+  const [dispatchId, setDispatchId]   = useState<string | null>(null)
+  const [showCreate, setShowCreate]   = useState(false)
 
   const fetchBookings = useCallback(async () => {
     if (!api) return
@@ -53,11 +55,19 @@ export default function BookingsPage() {
         subtitle="Manage incoming requests and dispatch assignments"
         count={bookings.length}
         actions={
-          pending > 0 ? (
-            <span className="text-xs text-secondary bg-card border border-border px-3 py-1.5 rounded-md">
-              {pending} pending · {confirmed} confirmed
-            </span>
-          ) : undefined
+          <div className="flex items-center gap-3">
+            {pending > 0 && (
+              <span className="text-xs text-secondary bg-card border border-border px-3 py-1.5 rounded-md">
+                {pending} pending · {confirmed} confirmed
+              </span>
+            )}
+            <button
+              onClick={() => setShowCreate(true)}
+              className="text-xs font-semibold bg-accent text-[#0B0B0C] px-4 py-1.5 rounded-lg hover:bg-accent/90 transition-colors"
+            >
+              + Add Booking
+            </button>
+          </div>
         }
       />
 
@@ -79,6 +89,18 @@ export default function BookingsPage() {
           api={api}
           onClose={() => setDispatchId(null)}
           onSuccess={handleDispatchComplete}
+        />
+      )}
+
+      {showCreate && api && (
+        <CreateBookingModal
+          api={api}
+          onClose={() => setShowCreate(false)}
+          onSuccess={() => {
+            setShowCreate(false)
+            setLoading(true)
+            fetchBookings()
+          }}
         />
       )}
     </div>
