@@ -35,7 +35,9 @@ export function CreateBookingModal({ api, onClose, onSuccess }: Props) {
   const [form, setForm] = useState({
     segment:          'business' as typeof SEGMENTS[number],
     pickup_address:   '',
+    pickup_notes:     '',
     dropoff_address:  '',
+    dropoff_notes:    '',
     scheduled_at:     '',
     distance_km:      '',
     duration_sec:     '',
@@ -65,7 +67,6 @@ export function CreateBookingModal({ api, onClose, onSuccess }: Props) {
       // Bind autocomplete to pickup input
       const pickupAC = new google.maps.places.Autocomplete(pickupRef.current, {
         fields: ['formatted_address', 'geometry'],
-        types:  ['address'],
       })
       pickupAC.addListener('place_changed', () => {
         const place = pickupAC.getPlace()
@@ -90,7 +91,6 @@ export function CreateBookingModal({ api, onClose, onSuccess }: Props) {
       // Bind autocomplete to dropoff input
       const dropoffAC = new google.maps.places.Autocomplete(dropoffRef.current, {
         fields: ['formatted_address', 'geometry'],
-        types:  ['address'],
       })
       dropoffAC.addListener('place_changed', () => {
         const place = dropoffAC.getPlace()
@@ -157,6 +157,13 @@ export function CreateBookingModal({ api, onClose, onSuccess }: Props) {
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     setError(null)
+
+    // Block submit if either address was not confirmed via autocomplete
+    if (pickupLat === null || pickupLng === null || dropoffLat === null || dropoffLng === null) {
+      setError('Please select both pickup and destination from the suggestions')
+      return
+    }
+
     setSubmitting(true)
     try {
       // duration_sec: use raw seconds from Distance Matrix if auto-filled,
@@ -225,37 +232,69 @@ export function CreateBookingModal({ api, onClose, onSuccess }: Props) {
           {/* Pickup / Dropoff */}
           <div className="grid grid-cols-2 gap-3">
             <Field label="Pickup address">
-              <input
-                ref={pickupRef}
-                type="text"
-                value={form.pickup_address}
-                onChange={e => {
-                  set('pickup_address', e.target.value)
-                  setPickupLat(null)
-                  setPickupLng(null)
-                  setAutofilledDurationSec(null)
-                }}
-                className={inputCls}
-                placeholder="123 Main St"
-                required
-                minLength={5}
-              />
+              <div className="relative">
+                <input
+                  ref={pickupRef}
+                  type="text"
+                  value={form.pickup_address}
+                  onChange={e => {
+                    set('pickup_address', e.target.value)
+                    setPickupLat(null)
+                    setPickupLng(null)
+                    setAutofilledDurationSec(null)
+                  }}
+                  className={inputCls + (pickupLat !== null ? ' pr-7' : '')}
+                  placeholder="123 Main St"
+                  required
+                  minLength={5}
+                />
+                {pickupLat !== null && (
+                  <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-emerald-400">✔</span>
+                )}
+              </div>
             </Field>
             <Field label="Destination">
+              <div className="relative">
+                <input
+                  ref={dropoffRef}
+                  type="text"
+                  value={form.dropoff_address}
+                  onChange={e => {
+                    set('dropoff_address', e.target.value)
+                    setDropoffLat(null)
+                    setDropoffLng(null)
+                    setAutofilledDurationSec(null)
+                  }}
+                  className={inputCls + (dropoffLat !== null ? ' pr-7' : '')}
+                  placeholder="456 Park Ave"
+                  required
+                  minLength={5}
+                />
+                {dropoffLat !== null && (
+                  <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-emerald-400">✔</span>
+                )}
+              </div>
+            </Field>
+          </div>
+
+          {/* Pickup / Dropoff notes */}
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Pickup notes">
               <input
-                ref={dropoffRef}
                 type="text"
-                value={form.dropoff_address}
-                onChange={e => {
-                  set('dropoff_address', e.target.value)
-                  setDropoffLat(null)
-                  setDropoffLng(null)
-                  setAutofilledDurationSec(null)
-                }}
+                value={form.pickup_notes}
+                onChange={e => set('pickup_notes', e.target.value)}
                 className={inputCls}
-                placeholder="456 Park Ave"
-                required
-                minLength={5}
+                placeholder="Entrance, apartment, instructions…"
+              />
+            </Field>
+            <Field label="Dropoff notes">
+              <input
+                type="text"
+                value={form.dropoff_notes}
+                onChange={e => set('dropoff_notes', e.target.value)}
+                className={inputCls}
+                placeholder="Entrance, apartment, instructions…"
               />
             </Field>
           </div>
