@@ -51,6 +51,33 @@ export function CreateBookingModal({ api, onClose, onSuccess }: Props) {
     setForm(prev => ({ ...prev, [field]: value }))
   }
 
+  // ─── Map pin drag handlers ────────────────────────────────────────────────────
+  function handlePickupDragEnd(lat: number, lng: number) {
+    setPickupLat(lat)
+    setPickupLng(lng)
+    setAutofilledDurationSec(null)
+    setDropoffLat(prevDLat => {
+      setDropoffLng(prevDLng => {
+        if (prevDLat !== null && prevDLng !== null) calcRoute(lat, lng, prevDLat, prevDLng)
+        return prevDLng
+      })
+      return prevDLat
+    })
+  }
+
+  function handleDropoffDragEnd(lat: number, lng: number) {
+    setDropoffLat(lat)
+    setDropoffLng(lng)
+    setAutofilledDurationSec(null)
+    setPickupLat(prevPLat => {
+      setPickupLng(prevPLng => {
+        if (prevPLat !== null && prevPLng !== null) calcRoute(prevPLat, prevPLng, lat, lng)
+        return prevPLng
+      })
+      return prevPLat
+    })
+  }
+
   // ─── Load Google Maps SDK ────────────────────────────────────────────────────
   useEffect(() => {
     const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
@@ -252,6 +279,9 @@ export function CreateBookingModal({ api, onClose, onSuccess }: Props) {
                   <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-emerald-400">✔</span>
                 )}
               </div>
+              {pickupLat !== null && pickupLng !== null && mapsReady && (
+                <MapPin lat={pickupLat} lng={pickupLng} onDragEnd={handlePickupDragEnd} />
+              )}
             </Field>
             <Field label="Destination">
               <div className="relative">
@@ -274,6 +304,9 @@ export function CreateBookingModal({ api, onClose, onSuccess }: Props) {
                   <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-emerald-400">✔</span>
                 )}
               </div>
+              {dropoffLat !== null && dropoffLng !== null && mapsReady && (
+                <MapPin lat={dropoffLat} lng={dropoffLng} onDragEnd={handleDropoffDragEnd} />
+              )}
             </Field>
           </div>
 
@@ -445,6 +478,50 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
         {label}
       </label>
       {children}
+    </div>
+  )
+}
+
+// ─── MapPin ───────────────────────────────────────────────────────────────────
+
+function MapPin({
+  lat,
+  lng,
+  onDragEnd,
+}: {
+  lat: number
+  lng: number
+  onDragEnd: (lat: number, lng: number) => void
+}) {
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!containerRef.current || typeof google === 'undefined') return
+    const map = new google.maps.Map(containerRef.current, {
+      center:           { lat, lng },
+      zoom:             17,
+      disableDefaultUI: true,
+      zoomControl:      true,
+    })
+    const marker = new google.maps.Marker({
+      position:  { lat, lng },
+      map,
+      draggable: true,
+    })
+    marker.addListener('dragend', () => {
+      const pos = marker.getPosition()
+      if (pos) onDragEnd(pos.lat(), pos.lng())
+    })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  // lat/lng intentionally omitted — component remounts via parent conditional when coords reset
+
+  return (
+    <div className="mt-1.5 space-y-1">
+      <p className="text-2xs text-muted/60">Drag pin to adjust exact location</p>
+      <div
+        ref={containerRef}
+        className="h-[180px] w-full rounded-lg overflow-hidden border border-border"
+      />
     </div>
   )
 }
