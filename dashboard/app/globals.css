@@ -53,3 +53,8 @@
     width: 100%;
   }
 }
+
+/* Google Places Autocomplete dropdown — must sit above modal z-50 */
+.pac-container {
+  z-index: 9999 !important;
+}

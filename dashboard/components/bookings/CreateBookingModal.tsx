@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, type FormEvent } from 'react'
+import { useState, useEffect, useRef, type FormEvent } from 'react'
 import { X } from 'lucide-react'
+import { Loader } from '@googlemaps/js-api-loader'
 import type { ApiClient } from '@/lib/api'
 
 interface Props {
@@ -16,6 +17,20 @@ const CHANNELS = ['manual', 'phone', 'app', 'partner', 'website'] as const
 export function CreateBookingModal({ api, onClose, onSuccess }: Props) {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError]           = useState<string | null>(null)
+
+  // ─── Maps state ──────────────────────────────────────────────────────────────
+  const [mapsReady, setMapsReady]             = useState(false)
+  const [pickupLat, setPickupLat]             = useState<number | null>(null)
+  const [pickupLng, setPickupLng]             = useState<number | null>(null)
+  const [dropoffLat, setDropoffLat]           = useState<number | null>(null)
+  const [dropoffLng, setDropoffLng]           = useState<number | null>(null)
+  const [fetchingRoute, setFetchingRoute]     = useState(false)
+  // When non-null: duration was auto-filled from Distance Matrix (already in seconds).
+  // When null: use form.duration_sec × 60 (user entered minutes).
+  const [autofilledDurationSec, setAutofilledDurationSec] = useState<number | null>(null)
+
+  const pickupRef  = useRef<HTMLInputElement>(null)
+  const dropoffRef = useRef<HTMLInputElement>(null)
 
   const [form, setForm] = useState({
     segment:          'business' as typeof SEGMENTS[number],
@@ -34,22 +49,133 @@ export function CreateBookingModal({ api, onClose, onSuccess }: Props) {
     setForm(prev => ({ ...prev, [field]: value }))
   }
 
+  // ─── Load Google Maps SDK ────────────────────────────────────────────────────
+  useEffect(() => {
+    const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+    if (!apiKey) return // key not configured — modal works as plain text inputs
+
+    let mounted = true
+
+    const loader = new Loader({ apiKey, libraries: ['places'], version: 'weekly' })
+
+    loader.load().then(() => {
+      if (!mounted) return
+      if (!pickupRef.current || !dropoffRef.current) return
+
+      // Bind autocomplete to pickup input
+      const pickupAC = new google.maps.places.Autocomplete(pickupRef.current, {
+        fields: ['formatted_address', 'geometry'],
+        types:  ['address'],
+      })
+      pickupAC.addListener('place_changed', () => {
+        const place = pickupAC.getPlace()
+        if (!place.geometry?.location) return
+        const lat = place.geometry.location.lat()
+        const lng = place.geometry.location.lng()
+        setPickupLat(lat)
+        setPickupLng(lng)
+        setForm(prev => ({ ...prev, pickup_address: place.formatted_address ?? prev.pickup_address }))
+        // Trigger route calculation if dropoff is already set — read fresh state via setters
+        setDropoffLat(prevDropoffLat => {
+          setDropoffLng(prevDropoffLng => {
+            if (prevDropoffLat !== null && prevDropoffLng !== null) {
+              calcRoute(lat, lng, prevDropoffLat, prevDropoffLng)
+            }
+            return prevDropoffLng
+          })
+          return prevDropoffLat
+        })
+      })
+
+      // Bind autocomplete to dropoff input
+      const dropoffAC = new google.maps.places.Autocomplete(dropoffRef.current, {
+        fields: ['formatted_address', 'geometry'],
+        types:  ['address'],
+      })
+      dropoffAC.addListener('place_changed', () => {
+        const place = dropoffAC.getPlace()
+        if (!place.geometry?.location) return
+        const lat = place.geometry.location.lat()
+        const lng = place.geometry.location.lng()
+        setDropoffLat(lat)
+        setDropoffLng(lng)
+        setForm(prev => ({ ...prev, dropoff_address: place.formatted_address ?? prev.dropoff_address }))
+        // Trigger route calculation if pickup is already set
+        setPickupLat(prevPickupLat => {
+          setPickupLng(prevPickupLng => {
+            if (prevPickupLat !== null && prevPickupLng !== null) {
+              calcRoute(prevPickupLat, prevPickupLng, lat, lng)
+            }
+            return prevPickupLng
+          })
+          return prevPickupLat
+        })
+      })
+
+      setMapsReady(true)
+    }).catch(() => {
+      // SDK failed to load — form continues as plain text inputs (current behavior)
+    })
+
+    return () => { mounted = false }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ─── Distance Matrix ─────────────────────────────────────────────────────────
+  function calcRoute(
+    oLat: number, oLng: number,
+    dLat: number, dLng: number,
+  ) {
+    if (typeof google === 'undefined') return
+    setFetchingRoute(true)
+    const svc = new google.maps.DistanceMatrixService()
+    svc.getDistanceMatrix(
+      {
+        origins:      [new google.maps.LatLng(oLat, oLng)],
+        destinations: [new google.maps.LatLng(dLat, dLng)],
+        travelMode:   google.maps.TravelMode.DRIVING,
+        unitSystem:   google.maps.UnitSystem.METRIC,
+      },
+      (result, status) => {
+        setFetchingRoute(false)
+        if (status !== 'OK' || !result) return // leave fields blank for manual entry
+        const element = result.rows[0]?.elements[0]
+        if (!element || element.status !== 'OK') return
+        const distKm  = Math.round((element.distance.value / 1000) * 10) / 10
+        const durSec  = element.duration.value // already in seconds
+        const durMin  = Math.round(durSec / 60)
+        // duration_sec field shows minutes to the user; autofilledDurationSec holds real seconds
+        setAutofilledDurationSec(durSec)
+        setForm(prev => ({
+          ...prev,
+          distance_km:  String(distKm),
+          duration_sec: String(durMin),
+        }))
+      },
+    )
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     setError(null)
     setSubmitting(true)
     try {
+      // duration_sec: use raw seconds from Distance Matrix if auto-filled,
+      // otherwise convert user-entered minutes → seconds.
+      const durationSec = autofilledDurationSec !== null
+        ? autofilledDurationSec
+        : Math.round(Number(form.duration_sec) * 60)
+
       await api.bookings.create({
         segment:         form.segment,
         pickup_address:  form.pickup_address,
-        pickup_lat:      0,
-        pickup_lng:      0,
+        pickup_lat:      pickupLat  ?? 0,
+        pickup_lng:      pickupLng  ?? 0,
         dropoff_address: form.dropoff_address,
-        dropoff_lat:     0,
-        dropoff_lng:     0,
+        dropoff_lat:     dropoffLat ?? 0,
+        dropoff_lng:     dropoffLng ?? 0,
         scheduled_at:    new Date(form.scheduled_at).toISOString(),
         distance_km:     Number(form.distance_km),
-        duration_sec:    Math.round(Number(form.duration_sec) * 60),
+        duration_sec:    durationSec,
         channel:         form.channel || undefined,
         partner:         form.partner || undefined,
         client_price:    form.client_price ? Number(form.client_price) : undefined,
@@ -100,9 +226,15 @@ export function CreateBookingModal({ api, onClose, onSuccess }: Props) {
           <div className="grid grid-cols-2 gap-3">
             <Field label="Pickup address">
               <input
+                ref={pickupRef}
                 type="text"
                 value={form.pickup_address}
-                onChange={e => set('pickup_address', e.target.value)}
+                onChange={e => {
+                  set('pickup_address', e.target.value)
+                  setPickupLat(null)
+                  setPickupLng(null)
+                  setAutofilledDurationSec(null)
+                }}
                 className={inputCls}
                 placeholder="123 Main St"
                 required
@@ -111,9 +243,15 @@ export function CreateBookingModal({ api, onClose, onSuccess }: Props) {
             </Field>
             <Field label="Destination">
               <input
+                ref={dropoffRef}
                 type="text"
                 value={form.dropoff_address}
-                onChange={e => set('dropoff_address', e.target.value)}
+                onChange={e => {
+                  set('dropoff_address', e.target.value)
+                  setDropoffLat(null)
+                  setDropoffLng(null)
+                  setAutofilledDurationSec(null)
+                }}
                 className={inputCls}
                 placeholder="456 Park Ave"
                 required
@@ -151,7 +289,10 @@ export function CreateBookingModal({ api, onClose, onSuccess }: Props) {
               <input
                 type="number"
                 value={form.duration_sec}
-                onChange={e => set('duration_sec', e.target.value)}
+                onChange={e => {
+                  set('duration_sec', e.target.value)
+                  setAutofilledDurationSec(null)
+                }}
                 className={inputCls}
                 placeholder="30"
                 min="1"
