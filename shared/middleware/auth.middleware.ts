@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
-import { supabase } from '../db/supabase.client';
+import jwt from 'jsonwebtoken';
+import { pool } from '../db/pg.client';
 import { AppError } from '../errors/AppError';
 import { AuthUser, UserRole } from '../types/domain';
 
@@ -10,6 +11,13 @@ declare global {
       user?: AuthUser;
     }
   }
+}
+
+interface SupabaseJwtPayload {
+  sub: string;
+  email: string;
+  exp: number;
+  role?: string;
 }
 
 export async function requireAuth(
@@ -36,32 +44,53 @@ export async function requireAuth(
       return next();
     }
 
-    // Verify JWT with Supabase
-    const { data, error } = await supabase.auth.getUser(token);
-    if (error || !data.user) {
+    // Verify JWT locally using SUPABASE_JWT_SECRET — no Supabase API call
+    const secret = process.env.SUPABASE_JWT_SECRET;
+    if (!secret) throw new Error('SUPABASE_JWT_SECRET is not configured');
+
+    let payload: SupabaseJwtPayload;
+    try {
+      payload = jwt.verify(token, secret) as SupabaseJwtPayload;
+    } catch {
       throw AppError.unauthorized('Invalid or expired token');
     }
 
-    // Load profile to get role and operator_id
-    const { data: profile, error: profileError } = await supabase
-      .from('user_profiles')
-      .select('id, role, operator_id, is_active')
-      .eq('id', data.user.id)
-      .single();
+    const supabaseUid = payload.sub;
+    const email       = payload.email ?? '';
 
-    if (profileError || !profile) {
-      throw AppError.unauthorized('User profile not found');
+    // Look up user in Railway Postgres
+    const existing = await pool.query<{
+      id: string; role: string; operator_id: string | null; active: boolean
+    }>(
+      'SELECT id, role, operator_id, active FROM users WHERE supabase_uid = $1',
+      [supabaseUid],
+    );
+
+    let dbUser = existing.rows[0];
+
+    if (!dbUser) {
+      // First login — create user with default role (platform admin assigns operator later)
+      const inserted = await pool.query<{
+        id: string; role: string; operator_id: string | null; active: boolean
+      }>(
+        `INSERT INTO users (supabase_uid, email, role)
+         VALUES ($1, $2, 'operator_admin')
+         ON CONFLICT (supabase_uid) DO UPDATE SET email = EXCLUDED.email
+         RETURNING id, role, operator_id, active`,
+        [supabaseUid, email],
+      );
+      dbUser = inserted.rows[0];
     }
 
-    if (!profile.is_active) {
+    if (!dbUser.active) {
       throw AppError.forbidden('Account is deactivated');
     }
 
     req.user = {
-      id: data.user.id,
-      email: data.user.email ?? '',
-      role: profile.role as UserRole,
-      operator_id: profile.operator_id,
+      id: dbUser.id,
+      email,
+      role: dbUser.role as UserRole,
+      operator_id: dbUser.operator_id,
     };
 
     next();

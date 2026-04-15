@@ -500,6 +500,151 @@ Design must stay modular.
 
 ---
 
+# 12. GOOGLE MAPS INTEGRATION (COMPLETED — April 2026)
+
+## Current System State
+
+### Autocomplete
+- Both pickup and destination inputs use `google.maps.places.Autocomplete`
+- No type restriction — returns addresses, airports, hotels, landmarks, businesses (global)
+- No country restriction — global search
+- On suggestion select:
+  - `formatted_address` fills the input
+  - `lat` / `lng` extracted from `geometry.location`
+  - Green ✔ checkmark appears on the input
+  - Distance Matrix triggered automatically if both sides are set
+
+### Coordinate Handling
+- `pickupLat`, `pickupLng`, `dropoffLat`, `dropoffLng` stored as `number | null`
+- Reset to `null` if user edits the address input manually
+- ✔ disappears when coordinates are null
+
+### Coordinate Validation
+- `handleSubmit` blocks form if any of the four coordinates is `null`
+- Error shown: "Please select both pickup and destination from the suggestions"
+- No API call is made with missing coordinates
+
+### Distance Matrix
+- Triggered when both lat/lng pairs are non-null
+- Uses `google.maps.DistanceMatrixService` in DRIVING mode
+- On success:
+  - `distance_km` auto-filled (meters → km, 1 decimal)
+  - `duration_sec` field shows minutes (for display)
+  - `autofilledDurationSec` stores raw seconds for submit
+
+### Duration Submit Logic
+- IF `autofilledDurationSec !== null` → send seconds directly (Distance Matrix value)
+- ELSE → `Math.round(form.duration_sec × 60)` (user typed minutes)
+- Double-conversion is structurally impossible
+
+### Map Pin (Draggable Marker)
+- Appears below each address input after autocomplete selection
+- Height: 180px, zoom 17
+- `google.maps.Marker` with `draggable: true`
+- On `dragend`: new lat/lng overwrites stored coordinates
+- Distance Matrix re-triggered when both sides have coordinates
+- Map disappears when user edits input text (coordinates reset → component unmounts)
+- Label: "Drag pin to adjust exact location"
+
+### Notes Fields
+- `pickup_notes` and `dropoff_notes` — optional free text
+- UI: shown below address inputs
+- Placeholder: "Entrance, apartment, instructions…"
+- Currently collected in form state only — NOT sent to backend (no DB column yet)
+
+---
+
+## Architecture Notes
+
+### Coordinate Sources (in priority order)
+1. `place_changed` from Autocomplete (first write)
+2. `dragend` from MapPin draggable marker (overrides autocomplete coords)
+
+### Source of Truth
+`pickupLat` / `pickupLng` / `dropoffLat` / `dropoffLng` in React state.
+Address text is display-only. Coordinates drive all calculations and submission.
+
+### Component Relationships
+```
+Autocomplete → sets lat/lng → triggers calcRoute (if both set)
+MapPin marker drag → overwrites lat/lng → triggers calcRoute (if both set)
+calcRoute → sets autofilledDurationSec + updates form display fields
+handleSubmit → reads lat/lng + autofilledDurationSec → sends to API
+```
+
+### SDK Loading
+- `@googlemaps/js-api-loader` v1.16.10
+- Loaded once on modal mount via `useEffect`
+- `mounted` guard prevents setState on unmounted component
+- If key missing or SDK fails → silent fallback to plain text inputs, form still works
+
+---
+
+## UX Logic
+
+| Event | Result |
+|---|---|
+| Autocomplete suggestion selected | ✔ appears, map appears, Distance Matrix fires if both sides set |
+| User edits input text manually | lat/lng → null, ✔ disappears, map disappears, `autofilledDurationSec` → null |
+| User drags map pin | lat/lng updated, Distance Matrix re-fires |
+| User edits duration_sec field | `autofilledDurationSec` → null (manual value will be multiplied ×60 on submit) |
+| Submit with missing coordinates | Blocked with inline error, no API call |
+
+---
+
+## Known Limitations
+
+1. **Address text not updated after pin drag** — reverse geocoding not implemented. After dragging, the input still shows the original autocomplete text, but coordinates are the accurate dragged position.
+2. **No reverse geocoding** — pin drag updates coordinates only, not the address string.
+3. **Inline map (not Uber-style overlay)** — map is collapsed below the input inside the form. No full-screen confirmation step.
+4. **`pickup_notes` / `dropoff_notes` not persisted** — fields exist in UI only; backend has no columns yet.
+5. **Stale closure risk mitigated but present** — both autocomplete listeners use nested-setter pattern to read fresh state. Tested and working for both selection orders (pickup-first and dropoff-first).
+
+---
+
+## ENV Variables (updated)
+
+### Frontend (Vercel + .env.local)
+
+- `NEXT_PUBLIC_API_URL` = Railway backend URL
+- `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` = Google Maps key
+  - Must have: **Maps JavaScript API** + **Places API** enabled
+  - Restrict to HTTP referrers: `https://chauffering-app-xi.vercel.app/*` and `http://localhost:3001/*`
+
+---
+
+## Deployed Commits (Google Maps feature)
+
+| Commit | Description |
+|---|---|
+| `676174c` | Initial Maps integration (Autocomplete + Distance Matrix) |
+| `d2ceba2` | Global autocomplete, coord guard, notes fields, checkmark UX |
+| `8d4f748` | Map pin draggable for precise location selection |
+
+---
+
+## Next Step: Reverse Geocoding After Pin Drag
+
+### What it is
+After the user drags the map pin to a new position, call `google.maps.Geocoder` with the new lat/lng to get the human-readable address for that exact point. Write the result back to `pickup_address` / `dropoff_address`.
+
+### Why it matters
+Currently the address text field still shows the original autocomplete result after pin drag. This creates a mismatch: coordinates are precise (new pin position) but the displayed address is the approximate autocomplete suggestion. The driver sees the original address in dispatch, not the adjusted one.
+
+### What it improves
+- Address text matches the exact pinned location
+- Fully consistent record: address text + coordinates describe the same point
+- No user confusion when reviewing a booking after creation
+
+### Implementation scope
+- Enable **Geocoding API** in Google Cloud Console (same key, no new billing account)
+- In `handlePickupDragEnd` / `handleDropoffDragEnd`: call `new google.maps.Geocoder().geocode({ location: { lat, lng } })`
+- On success: write `results[0].formatted_address` to `form.pickup_address` / `form.dropoff_address`
+- On failure: keep existing text (silent, non-blocking)
+- No backend changes required
+
+---
+
 ## ERROR HANDLING RULE
 
 - NEVER ignore errors
