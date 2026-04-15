@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
+import { supabase } from '../db/supabase.client';
 import { pool } from '../db/pg.client';
 import { AppError } from '../errors/AppError';
 import { AuthUser, UserRole } from '../types/domain';
@@ -11,13 +11,6 @@ declare global {
       user?: AuthUser;
     }
   }
-}
-
-interface SupabaseJwtPayload {
-  sub: string;
-  email: string;
-  exp: number;
-  role?: string;
 }
 
 export async function requireAuth(
@@ -44,19 +37,14 @@ export async function requireAuth(
       return next();
     }
 
-    // Verify JWT locally using SUPABASE_JWT_SECRET — no Supabase API call
-    const secret = process.env.SUPABASE_JWT_SECRET;
-    if (!secret) throw new Error('SUPABASE_JWT_SECRET is not configured');
-
-    let payload: SupabaseJwtPayload;
-    try {
-      payload = jwt.verify(token, secret) as SupabaseJwtPayload;
-    } catch {
+    // Validate token via Supabase Auth API — works with ES256 and HS256
+    const { data, error } = await supabase.auth.getUser(token);
+    if (error || !data?.user) {
       throw AppError.unauthorized('Invalid or expired token');
     }
 
-    const supabaseUid = payload.sub;
-    const email       = payload.email ?? '';
+    const supabaseUid = data.user.id;
+    const email       = data.user.email ?? '';
 
     // Look up user in Railway Postgres
     const existing = await pool.query<{
