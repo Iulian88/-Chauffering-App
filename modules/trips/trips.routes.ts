@@ -15,7 +15,7 @@ const router = Router();
 router.get(
   '/',
   requireAuth,
-  requireRole('operator_admin', 'operator_dispatcher', 'superadmin'),
+  requireRole('operator_admin', 'operator_dispatcher', 'platform_admin', 'superadmin'),
   handleListTrips,
 );
 
@@ -23,7 +23,7 @@ router.get(
 router.post(
   '/',
   requireAuth,
-  requireRole('operator_admin', 'operator_dispatcher'),
+  requireRole('operator_admin', 'operator_dispatcher', 'platform_admin', 'superadmin'),
   handleCreateTrip,
 );
 
@@ -31,7 +31,7 @@ router.post(
 router.get(
   '/:id',
   requireAuth,
-  requireRole('operator_admin', 'operator_dispatcher', 'driver'),
+  requireRole('operator_admin', 'operator_dispatcher', 'driver', 'platform_admin', 'superadmin'),
   handleGetTrip,
 );
 

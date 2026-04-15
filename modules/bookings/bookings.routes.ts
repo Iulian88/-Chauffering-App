@@ -14,7 +14,7 @@ const router = Router();
 router.post(
   '/',
   requireAuth,
-  requireRole('client', 'operator_admin', 'operator_dispatcher'),
+  requireRole('client', 'operator_admin', 'operator_dispatcher', 'platform_admin', 'superadmin'),
   handleCreateBooking,
 );
 
@@ -22,7 +22,7 @@ router.post(
 router.get(
   '/',
   requireAuth,
-  requireRole('operator_admin', 'operator_dispatcher', 'superadmin'),
+  requireRole('operator_admin', 'operator_dispatcher', 'platform_admin', 'superadmin'),
   handleListBookings,
 );
 
@@ -30,7 +30,7 @@ router.get(
 router.get(
   '/:id',
   requireAuth,
-  requireRole('client', 'operator_admin', 'operator_dispatcher'),
+  requireRole('client', 'operator_admin', 'operator_dispatcher', 'platform_admin', 'superadmin'),
   handleGetBooking,
 );
 
@@ -38,7 +38,7 @@ router.get(
 router.patch(
   '/:id/confirm',
   requireAuth,
-  requireRole('operator_admin', 'operator_dispatcher'),
+  requireRole('operator_admin', 'operator_dispatcher', 'platform_admin', 'superadmin'),
   handleConfirmBooking,
 );
 
@@ -46,7 +46,7 @@ router.patch(
 router.patch(
   '/:id/cancel',
   requireAuth,
-  requireRole('client', 'operator_admin', 'operator_dispatcher'),
+  requireRole('client', 'operator_admin', 'operator_dispatcher', 'platform_admin', 'superadmin'),
   handleCancelBooking,
 );
 

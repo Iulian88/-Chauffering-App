@@ -19,7 +19,7 @@ const VehicleSchema = z.object({
 router.get(
   '/',
   requireAuth,
-  requireRole('operator_admin', 'operator_dispatcher'),
+  requireRole('operator_admin', 'operator_dispatcher', 'platform_admin', 'superadmin'),
   async (req: Request, res: Response) => {
     const { operator_id, role } = req.user!;
     if (role !== 'platform_admin' && role !== 'superadmin' && !operator_id) {
@@ -41,7 +41,7 @@ router.get(
 router.post(
   '/',
   requireAuth,
-  requireRole('operator_admin'),
+  requireRole('operator_admin', 'platform_admin', 'superadmin'),
   async (req: Request, res: Response) => {
     const { operator_id } = req.user!;
     if (!operator_id) throw AppError.forbidden('No operator scope');
@@ -61,7 +61,7 @@ router.post(
 router.patch(
   '/:id',
   requireAuth,
-  requireRole('operator_admin'),
+  requireRole('operator_admin', 'platform_admin', 'superadmin'),
   async (req: Request, res: Response) => {
     const { operator_id } = req.user!;
     if (!operator_id) throw AppError.forbidden('No operator scope');

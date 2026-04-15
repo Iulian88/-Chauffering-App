@@ -15,7 +15,7 @@ const router = Router();
 router.post(
   '/assign',
   requireAuth,
-  requireRole('operator_admin', 'operator_dispatcher'),
+  requireRole('operator_admin', 'operator_dispatcher', 'platform_admin', 'superadmin'),
   async (req: Request, res: Response) => {
     const input = ManualAssignSchema.parse(req.body);
     const trip = await manualAssign(input, req.user!);
@@ -27,7 +27,7 @@ router.post(
 router.delete(
   '/trips/:id/unassign',
   requireAuth,
-  requireRole('operator_admin', 'operator_dispatcher'),
+  requireRole('operator_admin', 'operator_dispatcher', 'platform_admin', 'superadmin'),
   async (req: Request, res: Response) => {
     await unassignTrip(req.params.id, req.user!);
     res.json({ message: 'Trip unassigned. Booking returned to confirmed.' });
@@ -38,7 +38,7 @@ router.delete(
 router.get(
   '/available-drivers/:bookingId',
   requireAuth,
-  requireRole('operator_admin', 'operator_dispatcher'),
+  requireRole('operator_admin', 'operator_dispatcher', 'platform_admin', 'superadmin'),
   async (req: Request, res: Response) => {
     const drivers = await getAvailableDriversForBooking(req.params.bookingId, req.user!);
     res.json({ data: drivers });

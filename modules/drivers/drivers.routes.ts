@@ -31,21 +31,21 @@ const router = Router();
 router.get(
   '/',
   requireAuth,
-  requireRole('operator_admin', 'operator_dispatcher'),
+  requireRole('operator_admin', 'operator_dispatcher', 'platform_admin', 'superadmin'),
   handleListDrivers,
 );
 
 router.get(
   '/:id',
   requireAuth,
-  requireRole('operator_admin', 'operator_dispatcher', 'driver'),
+  requireRole('operator_admin', 'operator_dispatcher', 'driver', 'platform_admin', 'superadmin'),
   handleGetDriver,
 );
 
 router.patch(
   '/:id/availability',
   requireAuth,
-  requireRole('operator_admin', 'operator_dispatcher', 'driver'),
+  requireRole('operator_admin', 'operator_dispatcher', 'driver', 'platform_admin', 'superadmin'),
   handleUpdateAvailability,
 );
 
