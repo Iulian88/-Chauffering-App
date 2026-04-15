@@ -2,6 +2,7 @@
 
 export type UserRole =
   | 'superadmin'
+  | 'platform_admin'
   | 'operator_admin'
   | 'operator_dispatcher'
   | 'driver'

@@ -72,8 +72,10 @@ export async function getOperatorBookings(
   filter: Omit<ListBookingsFilter, 'operator_id'>,
   user: AuthUser,
 ): Promise<Booking[]> {
-  if (!user.operator_id) throw AppError.forbidden('No operator scope');
-  return listBookings({ ...filter, operator_id: user.operator_id });
+  if (user.role !== 'platform_admin' && user.role !== 'superadmin' && !user.operator_id) {
+    throw AppError.forbidden('No operator scope');
+  }
+  return listBookings({ ...filter, operator_id: user.operator_id as string });
 }
 
 // ─── Get single ───────────────────────────────────────────────────────────────
@@ -83,8 +85,10 @@ export async function getBooking(id: string, user: AuthUser): Promise<Booking> {
   if (user.role === 'client') {
     booking = await findBookingByIdForClient(id, user.id);
   } else {
-    if (!user.operator_id) throw AppError.forbidden('No operator scope');
-    booking = await findBookingById(id, user.operator_id);
+    if (user.role !== 'platform_admin' && user.role !== 'superadmin' && !user.operator_id) {
+      throw AppError.forbidden('No operator scope');
+    }
+    booking = await findBookingById(id, user.operator_id as string);
   }
 
   if (!booking) throw AppError.notFound('Booking');
@@ -122,9 +126,11 @@ export async function cancelBooking(
 
 // ─── Confirm (operator only) ─────────────────────────────────────────────────
 export async function confirmBooking(id: string, user: AuthUser): Promise<Booking> {
-  if (!user.operator_id) throw AppError.forbidden('No operator scope');
+  if (user.role !== 'platform_admin' && user.role !== 'superadmin' && !user.operator_id) {
+    throw AppError.forbidden('No operator scope');
+  }
 
-  const booking = await findBookingById(id, user.operator_id);
+  const booking = await findBookingById(id, user.operator_id as string);
   if (!booking) throw AppError.notFound('Booking');
 
   if (booking.status !== 'pending') {
@@ -134,7 +140,7 @@ export async function confirmBooking(id: string, user: AuthUser): Promise<Bookin
     );
   }
 
-  return updateBookingStatus(id, user.operator_id, 'confirmed');
+  return updateBookingStatus(id, user.operator_id as string, 'confirmed');
 }
 
 // ─── Internal: advance status (called by dispatch/trips services) ─────────────

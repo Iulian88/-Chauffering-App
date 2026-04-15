@@ -112,8 +112,8 @@ export function requireOperatorScope(
 ): void {
   if (!req.user) return next(AppError.unauthorized());
 
-  // superadmin bypasses tenant scope
-  if (req.user.role === 'superadmin') return next();
+  // superadmin and platform_admin bypass tenant scope
+  if (req.user.role === 'superadmin' || req.user.role === 'platform_admin') return next();
 
   if (!req.user.operator_id) {
     return next(AppError.forbidden('No operator scope on this account'));
