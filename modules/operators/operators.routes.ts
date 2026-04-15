@@ -6,16 +6,20 @@ import { AppError } from '../../shared/errors/AppError';
 
 const router = Router();
 
-// GET /operators/:id — superadmin or the operator itself
+// GET /operators/:id — superadmin, platform_admin, or the operator itself
 router.get(
   '/:id',
   requireAuth,
-  requireRole('superadmin', 'operator_admin'),
+  requireRole('superadmin', 'platform_admin', 'operator_admin'),
   async (req: Request, res: Response) => {
     const user = req.user!;
 
-    // operator_admin can only see their own operator
-    if (user.role === 'operator_admin' && user.operator_id !== req.params.id) {
+    // operator_admin can only see their own operator; platform_admin/superadmin bypass
+    if (
+      user.role !== 'platform_admin' &&
+      user.role !== 'superadmin' &&
+      user.operator_id !== req.params.id
+    ) {
       throw AppError.forbidden('Access denied');
     }
 
@@ -34,10 +38,14 @@ router.get(
 router.patch(
   '/:id',
   requireAuth,
-  requireRole('superadmin', 'operator_admin'),
+  requireRole('superadmin', 'platform_admin', 'operator_admin'),
   async (req: Request, res: Response) => {
     const user = req.user!;
-    if (user.role === 'operator_admin' && user.operator_id !== req.params.id) {
+    if (
+      user.role !== 'platform_admin' &&
+      user.role !== 'superadmin' &&
+      user.operator_id !== req.params.id
+    ) {
       throw AppError.forbidden('Access denied');
     }
 
