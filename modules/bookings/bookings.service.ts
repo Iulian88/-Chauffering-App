@@ -72,10 +72,13 @@ export async function getOperatorBookings(
   filter: Omit<ListBookingsFilter, 'operator_id'>,
   user: AuthUser,
 ): Promise<Booking[]> {
-  if (user.role !== 'platform_admin' && user.role !== 'superadmin' && !user.operator_id) {
+  const isPlatformWide = user.role === 'platform_admin' || user.role === 'superadmin';
+  if (!isPlatformWide && !user.operator_id) {
     throw AppError.forbidden('No operator scope');
   }
-  return listBookings({ ...filter, operator_id: user.operator_id as string });
+  // platform_admin/superadmin: omit operator_id filter → returns all bookings
+  // operator users: scoped to their tenant
+  return listBookings({ ...filter, operator_id: isPlatformWide ? null : user.operator_id });
 }
 
 // ─── Get single ───────────────────────────────────────────────────────────────

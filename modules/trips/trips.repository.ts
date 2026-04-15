@@ -13,6 +13,17 @@ export async function findTripsByOperator(operator_id: string): Promise<Trip[]> 
   return (data ?? []) as Trip[];
 }
 
+// Platform-wide list — no operator filter (platform_admin / superadmin only)
+export async function findAllTrips(): Promise<Trip[]> {
+  const { data, error } = await supabase
+    .from('trips')
+    .select('*')
+    .order('assigned_at', { ascending: false });
+
+  if (error) throw AppError.internal(error.message);
+  return (data ?? []) as Trip[];
+}
+
 export async function insertTrip(
   data: Omit<Trip, 'id' | 'created_at' | 'updated_at' | 'assigned_at' | 'accepted_at' | 'en_route_at' | 'arrived_at' | 'completed_at' | 'refused_at' | 'refusal_reason'>,
 ): Promise<Trip> {
@@ -32,6 +43,18 @@ export async function findTripById(id: string, operator_id: string): Promise<Tri
     .select('*')
     .eq('id', id)
     .eq('operator_id', operator_id)
+    .maybeSingle();
+
+  if (error) throw AppError.internal(error.message);
+  return data as Trip | null;
+}
+
+// Platform-wide lookup — no operator filter (platform_admin / superadmin only)
+export async function findTripByIdGlobal(id: string): Promise<Trip | null> {
+  const { data, error } = await supabase
+    .from('trips')
+    .select('*')
+    .eq('id', id)
     .maybeSingle();
 
   if (error) throw AppError.internal(error.message);

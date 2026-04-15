@@ -45,6 +45,46 @@ export async function findDriverById(id: string, operator_id: string): Promise<D
   return data as Driver | null;
 }
 
+// Platform-wide lookup — no operator filter (platform_admin / superadmin only)
+export async function findDriverByIdGlobal(id: string): Promise<Driver | null> {
+  const { data, error } = await supabase
+    .from('drivers')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle();
+
+  if (error) throw AppError.internal(error.message);
+  return data as Driver | null;
+}
+
+// Platform-wide list — no operator filter (platform_admin / superadmin only)
+export async function findAllDrivers(): Promise<Driver[]> {
+  const { data: drivers, error } = await supabase
+    .from('drivers')
+    .select('*')
+    .eq('is_active', true)
+    .order('created_at', { ascending: false });
+
+  if (error) throw AppError.internal(error.message);
+  if (!drivers || drivers.length === 0) return [];
+
+  const userIds = drivers.map((d: Record<string, unknown>) => d.user_id as string);
+  const { data: profiles } = await supabase
+    .from('user_profiles')
+    .select('id, full_name, phone')
+    .in('id', userIds);
+
+  const profileMap = new Map(
+    (profiles ?? []).map((p: { id: string; full_name: string; phone: string | null }) => [p.id, p]),
+  );
+
+  return drivers.map((d: Record<string, unknown>) => ({
+    ...d,
+    user_profiles: profileMap.get(d.user_id as string) ?? null,
+    vehicles: null,
+  })) as unknown as Driver[];
+}
+
 export async function findDriverByUserId(user_id: string): Promise<Driver | null> {
   const { data, error } = await supabase
     .from('drivers')

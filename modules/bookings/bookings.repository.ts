@@ -40,7 +40,7 @@ export async function findBookingByIdForClient(id: string, client_user_id: strin
 }
 
 export interface ListBookingsFilter {
-  operator_id: string;
+  operator_id?: string | null;
   status?: BookingStatus;
   segment?: string;
   from?: string;
@@ -53,8 +53,10 @@ export async function listBookings(filter: ListBookingsFilter): Promise<Booking[
   let query = supabase
     .from('bookings')
     .select('*')
-    .eq('operator_id', filter.operator_id)
     .order('scheduled_at', { ascending: true });
+
+  // Only apply operator filter when scoped (operator users); platform_admin passes null
+  if (filter.operator_id) query = query.eq('operator_id', filter.operator_id);
 
   if (filter.status) query = query.eq('status', filter.status);
   if (filter.segment) query = query.eq('segment', filter.segment);
