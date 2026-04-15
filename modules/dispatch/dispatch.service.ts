@@ -85,9 +85,11 @@ export async function getAvailableDriversForBooking(
   bookingId: string,
   user: AuthUser,
 ): Promise<unknown[]> {
-  if (!user.operator_id) throw AppError.forbidden('No operator scope');
+  if (user.role !== 'platform_admin' && user.role !== 'superadmin' && !user.operator_id) {
+    throw AppError.forbidden('No operator scope');
+  }
 
-  const booking = await findBookingById(bookingId, user.operator_id);
+  const booking = await findBookingById(bookingId, user.operator_id as string);
   if (!booking) throw AppError.notFound('Booking');
 
   // 1. Find available drivers with a matching-segment vehicle

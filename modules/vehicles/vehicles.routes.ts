@@ -21,13 +21,15 @@ router.get(
   requireAuth,
   requireRole('operator_admin', 'operator_dispatcher'),
   async (req: Request, res: Response) => {
-    const { operator_id } = req.user!;
-    if (!operator_id) throw AppError.forbidden('No operator scope');
+    const { operator_id, role } = req.user!;
+    if (role !== 'platform_admin' && role !== 'superadmin' && !operator_id) {
+      throw AppError.forbidden('No operator scope');
+    }
 
     const { data, error } = await supabase
       .from('vehicles')
       .select('*')
-      .eq('operator_id', operator_id)
+      .eq('operator_id', operator_id as string)
       .eq('is_active', true)
       .order('created_at', { ascending: false });
 

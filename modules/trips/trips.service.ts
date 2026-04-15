@@ -52,8 +52,10 @@ function timestampFieldFor(status: TripStatus): Record<string, string> {
 // NOTE: concurrency safety is enforced here in application layer.
 // For production, prefer the DB-level assign_driver_to_trip() function instead.
 export async function listTrips(user: AuthUser): Promise<Trip[]> {
-  if (!user.operator_id) throw AppError.forbidden('No operator scope');
-  return findTripsByOperator(user.operator_id);
+  if (user.role !== 'platform_admin' && user.role !== 'superadmin' && !user.operator_id) {
+    throw AppError.forbidden('No operator scope');
+  }
+  return findTripsByOperator(user.operator_id as string);
 }
 
 export async function createTrip(input: CreateTripInput, user: AuthUser): Promise<Trip> {
@@ -154,8 +156,10 @@ export async function getTrip(id: string, user: AuthUser): Promise<Trip> {
     if (!driverRow) throw AppError.notFound('Driver profile');
     trip = await findTripByIdForDriver(id, driverRow.id);
   } else {
-    if (!user.operator_id) throw AppError.forbidden('No operator scope');
-    trip = await findTripById(id, user.operator_id);
+    if (user.role !== 'platform_admin' && user.role !== 'superadmin' && !user.operator_id) {
+      throw AppError.forbidden('No operator scope');
+    }
+    trip = await findTripById(id, user.operator_id as string);
   }
 
   if (!trip) throw AppError.notFound('Trip');

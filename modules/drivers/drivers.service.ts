@@ -8,13 +8,17 @@ import {
 } from './drivers.repository';
 
 export async function listDrivers(user: AuthUser): Promise<Driver[]> {
-  if (!user.operator_id) throw AppError.forbidden('No operator scope');
-  return findDriversByOperator(user.operator_id);
+  if (user.role !== 'platform_admin' && user.role !== 'superadmin' && !user.operator_id) {
+    throw AppError.forbidden('No operator scope');
+  }
+  return findDriversByOperator(user.operator_id as string);
 }
 
 export async function getDriver(id: string, user: AuthUser): Promise<Driver> {
-  if (!user.operator_id) throw AppError.forbidden('No operator scope');
-  const driver = await findDriverById(id, user.operator_id);
+  if (user.role !== 'platform_admin' && user.role !== 'superadmin' && !user.operator_id) {
+    throw AppError.forbidden('No operator scope');
+  }
+  const driver = await findDriverById(id, user.operator_id as string);
   if (!driver) throw AppError.notFound('Driver');
   return driver;
 }
