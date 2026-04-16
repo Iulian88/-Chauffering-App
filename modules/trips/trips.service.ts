@@ -11,7 +11,7 @@ import {
   updateTripStatus,
   insertDispatchLog,
 } from './trips.repository';
-import { findBookingById } from '../bookings/bookings.repository';
+import { findBookingByIdGlobal } from '../bookings/bookings.repository';
 import { setBookingStatus } from '../bookings/bookings.service';
 import { setDriverAvailability } from '../drivers/drivers.repository';
 import { CreateTripInput, RefuseTripInput, UpdateTripStatusInput } from './trips.schema';
@@ -65,10 +65,27 @@ export async function listTrips(user: AuthUser): Promise<Trip[]> {
 }
 
 export async function createTrip(input: CreateTripInput, user: AuthUser): Promise<Trip> {
-  if (!user.operator_id) throw AppError.forbidden('No operator scope');
-
-  const booking = await findBookingById(input.booking_id, user.operator_id);
+  // Fetch booking without operator scope — scope is validated below
+  const booking = await findBookingByIdGlobal(input.booking_id);
   if (!booking) throw AppError.notFound('Booking');
+
+  // Booking must have an assigned operator before it can be dispatched
+  if (!booking.operator_id) {
+    throw AppError.unprocessable(
+      'Booking must be assigned to an operator before dispatching',
+      'OPERATOR_NOT_ASSIGNED',
+    );
+  }
+
+  // Operator staff can only dispatch bookings assigned to their operator
+  if (!isPlatformWide(user.role)) {
+    if (!user.operator_id) throw AppError.forbidden('No operator scope');
+    if (booking.operator_id !== user.operator_id) {
+      throw AppError.forbidden('Booking is not assigned to your operator');
+    }
+  }
+
+  const scopedOperatorId = booking.operator_id;
 
   if (booking.status !== 'confirmed') {
     throw AppError.unprocessable(
@@ -86,14 +103,14 @@ export async function createTrip(input: CreateTripInput, user: AuthUser): Promis
     );
   }
 
-  // Verify driver is available and belongs to this operator
+  // Verify driver is available and belongs to the booking's operator
   const { data: driver, error: driverError } = await (
     await import('../../shared/db/supabase.client')
   ).supabase
     .from('drivers')
     .select('id, availability_status, is_active, operator_id')
     .eq('id', input.driver_id)
-    .eq('operator_id', user.operator_id)
+    .eq('operator_id', scopedOperatorId)
     .single();
 
   if (driverError || !driver) throw AppError.notFound('Driver');
@@ -105,14 +122,14 @@ export async function createTrip(input: CreateTripInput, user: AuthUser): Promis
     );
   }
 
-  // Verify vehicle belongs to this operator
+  // Verify vehicle belongs to the booking's operator
   const { data: vehicle, error: vehicleError } = await (
     await import('../../shared/db/supabase.client')
   ).supabase
     .from('vehicles')
     .select('id, is_active, operator_id')
     .eq('id', input.vehicle_id)
-    .eq('operator_id', user.operator_id)
+    .eq('operator_id', scopedOperatorId)
     .single();
 
   if (vehicleError || !vehicle) throw AppError.notFound('Vehicle');
@@ -123,7 +140,7 @@ export async function createTrip(input: CreateTripInput, user: AuthUser): Promis
     booking_id: input.booking_id,
     driver_id: input.driver_id,
     vehicle_id: input.vehicle_id,
-    operator_id: user.operator_id,
+    operator_id: scopedOperatorId,
     status: 'assigned',
   });
 
@@ -131,7 +148,7 @@ export async function createTrip(input: CreateTripInput, user: AuthUser): Promis
   await setDriverAvailability(input.driver_id, 'busy');
 
   // Advance booking → dispatched
-  await setBookingStatus(input.booking_id, user.operator_id, 'dispatched');
+  await setBookingStatus(input.booking_id, scopedOperatorId, 'dispatched');
 
   // Audit log
   await insertDispatchLog({

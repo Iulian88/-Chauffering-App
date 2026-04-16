@@ -3,6 +3,7 @@ import { AppError } from '../../shared/errors/AppError';
 import {
   findAllDrivers,
   findDriversByOperator,
+  findAvailableDriversByOperator,
   findDriverById,
   findDriverByIdGlobal,
   findDriverByUserId,
@@ -10,6 +11,15 @@ import {
 } from './drivers.repository';
 
 const isPlatformWide = (role: string) => role === 'platform_admin' || role === 'superadmin';
+
+export async function listAvailableDrivers(
+  user: AuthUser,
+  segment?: string,
+): Promise<{ drivers: Driver[]; count: number }> {
+  if (!user.operator_id) throw AppError.forbidden('No operator scope');
+  const drivers = await findAvailableDriversByOperator(user.operator_id, segment);
+  return { drivers, count: drivers.length };
+}
 
 export async function listDrivers(user: AuthUser): Promise<Driver[]> {
   if (!isPlatformWide(user.role) && !user.operator_id) {

@@ -6,8 +6,11 @@ import {
   createBooking,
   findBookingById,
   findBookingByIdForClient,
+  findBookingByIdGlobal,
   listBookings,
   updateBookingStatus,
+  updateBookingStatusGlobal,
+  assignOperator,
   ListBookingsFilter,
 } from './bookings.repository';
 import { CreateBookingInput, CancelBookingInput } from './bookings.schema';
@@ -19,11 +22,11 @@ const CANCELLABLE_STATUSES: BookingStatus[] = ['pending', 'confirmed', 'dispatch
 export async function createBookingForClient(
   input: CreateBookingInput,
   user: AuthUser,
-  operator_id: string,
+  operator_id: string | null,
 ): Promise<Booking> {
-  // Resolve pricing snapshot (fall back to defaults if no rule configured)
+  // Resolve pricing snapshot — skip rule lookup for pool bookings (operator not yet assigned)
   const snapshot =
-    (await getActiveRuleSnapshot(operator_id, input.segment)) ??
+    (operator_id ? await getActiveRuleSnapshot(operator_id, input.segment) : null) ??
     defaultSnapshotForSegment(input.segment);
 
   const { price } = calculatePrice({
@@ -88,10 +91,13 @@ export async function getBooking(id: string, user: AuthUser): Promise<Booking> {
   if (user.role === 'client') {
     booking = await findBookingByIdForClient(id, user.id);
   } else {
-    if (user.role !== 'platform_admin' && user.role !== 'superadmin' && !user.operator_id) {
+    const isPlatformWide = user.role === 'platform_admin' || user.role === 'superadmin';
+    if (!isPlatformWide && !user.operator_id) {
       throw AppError.forbidden('No operator scope');
     }
-    booking = await findBookingById(id, user.operator_id as string);
+    booking = isPlatformWide
+      ? await findBookingByIdGlobal(id)
+      : await findBookingById(id, user.operator_id as string);
   }
 
   if (!booking) throw AppError.notFound('Booking');
@@ -118,22 +124,28 @@ export async function cancelBooking(
     throw AppError.forbidden('You can only cancel your own bookings');
   }
 
-  const operator_id = booking.operator_id;
-
-  return updateBookingStatus(id, operator_id, 'cancelled', {
+  const extra = {
     cancellation_reason: input.cancellation_reason ?? null,
     cancelled_by: user.id,
     cancelled_at: new Date().toISOString(),
-  });
+  };
+
+  return booking.operator_id
+    ? updateBookingStatus(id, booking.operator_id, 'cancelled', extra)
+    : updateBookingStatusGlobal(id, 'cancelled', extra);
 }
 
 // ─── Confirm (operator only) ─────────────────────────────────────────────────
 export async function confirmBooking(id: string, user: AuthUser): Promise<Booking> {
-  if (user.role !== 'platform_admin' && user.role !== 'superadmin' && !user.operator_id) {
+  const isPlatformWide = user.role === 'platform_admin' || user.role === 'superadmin';
+
+  if (!isPlatformWide && !user.operator_id) {
     throw AppError.forbidden('No operator scope');
   }
 
-  const booking = await findBookingById(id, user.operator_id as string);
+  const booking = isPlatformWide
+    ? await findBookingByIdGlobal(id)
+    : await findBookingById(id, user.operator_id as string);
   if (!booking) throw AppError.notFound('Booking');
 
   if (booking.status !== 'pending') {
@@ -143,7 +155,44 @@ export async function confirmBooking(id: string, user: AuthUser): Promise<Bookin
     );
   }
 
-  return updateBookingStatus(id, user.operator_id as string, 'confirmed');
+  return booking.operator_id
+    ? updateBookingStatus(id, booking.operator_id, 'confirmed')
+    : updateBookingStatusGlobal(id, 'confirmed');
+}
+
+// ─── List marketplace (pool) bookings — visible to all operator roles ─────────
+export async function getMarketplaceBookings(_user: AuthUser): Promise<Booking[]> {
+  return listBookings({ pool: true, status: 'pending', limit: 100 });
+}
+
+// ─── Assign operator to a pool booking ────────────────────────────────────────
+export async function assignOperatorToBooking(
+  id: string,
+  operator_id: string,
+  user: AuthUser,
+): Promise<Booking> {
+  const isPlatformWide = user.role === 'platform_admin' || user.role === 'superadmin';
+
+  // Operator staff can only assign their own operator
+  if (!isPlatformWide && user.operator_id && operator_id !== user.operator_id) {
+    throw AppError.forbidden('Cannot assign a different operator');
+  }
+
+  const booking = await findBookingByIdGlobal(id);
+  if (!booking) throw AppError.notFound('Booking');
+
+  if (booking.operator_id !== null) {
+    throw AppError.conflict('Booking already has an operator assigned', 'ALREADY_ASSIGNED');
+  }
+
+  if (booking.status !== 'pending') {
+    throw AppError.unprocessable(
+      `Only pending bookings can be assigned to an operator (current: '${booking.status}')`,
+      'BOOKING_NOT_ASSIGNABLE',
+    );
+  }
+
+  return assignOperator(id, operator_id);
 }
 
 // ─── Internal: advance status (called by dispatch/trips services) ─────────────

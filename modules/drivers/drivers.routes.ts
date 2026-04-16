@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { requireAuth, requireRole } from '../../shared/middleware/auth.middleware';
-import { listDrivers, getDriver, setAvailability } from './drivers.service';
+import { listDrivers, listAvailableDrivers, getDriver, setAvailability } from './drivers.service';
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
 const UpdateAvailabilitySchema = z.object({
@@ -9,6 +9,12 @@ const UpdateAvailabilitySchema = z.object({
 });
 
 // ─── Controller ───────────────────────────────────────────────────────────────
+async function handleListAvailableDrivers(req: Request, res: Response): Promise<void> {
+  const segment = typeof req.query.segment === 'string' ? req.query.segment : undefined;
+  const { drivers, count } = await listAvailableDrivers(req.user!, segment);
+  res.json({ data: drivers, count });
+}
+
 async function handleListDrivers(req: Request, res: Response): Promise<void> {
   const drivers = await listDrivers(req.user!);
   res.json({ data: drivers, count: drivers.length });
@@ -27,6 +33,14 @@ async function handleUpdateAvailability(req: Request, res: Response): Promise<vo
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
 const router = Router();
+
+// IMPORTANT: must be before /:id to avoid Express treating 'available' as an id param
+router.get(
+  '/available',
+  requireAuth,
+  requireRole('operator_admin', 'operator_dispatcher', 'platform_admin', 'superadmin'),
+  handleListAvailableDrivers,
+);
 
 router.get(
   '/',

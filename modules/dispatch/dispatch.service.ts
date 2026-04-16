@@ -29,16 +29,20 @@ export async function manualAssign(
  * Returns the booking to 'confirmed' so it can be reassigned.
  */
 export async function unassignTrip(tripId: string, user: AuthUser): Promise<void> {
-  if (!user.operator_id) throw AppError.forbidden('No operator scope');
+  const isPlatformWide = user.role === 'platform_admin' || user.role === 'superadmin';
+  if (!isPlatformWide && !user.operator_id) throw AppError.forbidden('No operator scope');
 
-  const { data: trip, error } = await supabase
-    .from('trips')
-    .select('*')
-    .eq('id', tripId)
-    .eq('operator_id', user.operator_id)
-    .single();
+  const tripQuery = supabase.from('trips').select('*').eq('id', tripId);
+  const { data: trip, error } = await (
+    isPlatformWide ? tripQuery : tripQuery.eq('operator_id', user.operator_id)
+  ).single();
 
   if (error || !trip) throw AppError.notFound('Trip');
+
+  // Operator staff can only unassign trips belonging to their operator
+  if (!isPlatformWide && trip.operator_id !== user.operator_id) {
+    throw AppError.forbidden('Trip is not assigned to your operator');
+  }
 
   if (trip.status !== 'assigned') {
     throw AppError.unprocessable(
@@ -59,12 +63,11 @@ export async function unassignTrip(tripId: string, user: AuthUser): Promise<void
     .update({ availability_status: 'available', updated_at: new Date().toISOString() })
     .eq('id', trip.driver_id);
 
-  // Return booking to confirmed
+  // Return booking to confirmed — use trip.operator_id (the booking's actual owner)
   await supabase
     .from('bookings')
     .update({ status: 'confirmed', updated_at: new Date().toISOString() })
-    .eq('id', trip.booking_id)
-    .eq('operator_id', user.operator_id);
+    .eq('id', trip.booking_id);
 
   // Audit
   await insertDispatchLog({

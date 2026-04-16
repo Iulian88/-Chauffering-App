@@ -121,7 +121,7 @@ export interface BookingStop {
 
 export interface Booking {
   id: string;
-  operator_id: string;
+  operator_id: string | null;
   client_user_id: string;
   pricing_rule_id: string | null;
   status: BookingStatus;

@@ -85,6 +85,33 @@ export async function findAllDrivers(): Promise<Driver[]> {
   })) as unknown as Driver[];
 }
 
+export async function findAvailableDriversByOperator(
+  operator_id: string,
+  segment?: string,
+): Promise<Driver[]> {
+  let query = supabase
+    .from('drivers')
+    .select('*, vehicles(id, segment, is_active, assigned_driver_id)')
+    .eq('operator_id', operator_id)
+    .eq('availability_status', 'available')
+    .eq('is_active', true);
+
+  const { data, error } = await query;
+  if (error) throw AppError.internal(error.message);
+
+  let drivers = (data ?? []) as unknown as (Driver & { vehicles: { id: string; segment: string; is_active: boolean }[] })[];
+
+  // If a segment filter is given, keep only drivers who have at least one active
+  // vehicle of that segment assigned to them
+  if (segment) {
+    drivers = drivers.filter(d =>
+      (d.vehicles ?? []).some(v => v.is_active && v.segment === segment),
+    );
+  }
+
+  return drivers as unknown as Driver[];
+}
+
 export async function findDriverByUserId(user_id: string): Promise<Driver | null> {
   const { data, error } = await supabase
     .from('drivers')

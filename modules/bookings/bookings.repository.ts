@@ -39,8 +39,20 @@ export async function findBookingByIdForClient(id: string, client_user_id: strin
   return data as Booking | null;
 }
 
+export async function findBookingByIdGlobal(id: string): Promise<Booking | null> {
+  const { data, error } = await supabase
+    .from('bookings')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle();
+
+  if (error) throw AppError.internal(error.message);
+  return data as Booking | null;
+}
+
 export interface ListBookingsFilter {
   operator_id?: string | null;
+  pool?: boolean;            // when true, filter operator_id IS NULL
   status?: BookingStatus;
   segment?: string;
   from?: string;
@@ -55,8 +67,13 @@ export async function listBookings(filter: ListBookingsFilter): Promise<Booking[
     .select('*')
     .order('scheduled_at', { ascending: true });
 
-  // Only apply operator filter when scoped (operator users); platform_admin passes null
-  if (filter.operator_id) query = query.eq('operator_id', filter.operator_id);
+  // Pool mode: only unassigned bookings
+  if (filter.pool) {
+    query = query.is('operator_id', null);
+  } else if (filter.operator_id) {
+    // Scoped to a specific operator
+    query = query.eq('operator_id', filter.operator_id);
+  }
 
   if (filter.status) query = query.eq('status', filter.status);
   if (filter.segment) query = query.eq('segment', filter.segment);
@@ -85,5 +102,37 @@ export async function updateBookingStatus(
     .single();
 
   if (error) throw AppError.internal(`Failed to update booking: ${error.message}`);
+  return data as Booking;
+}
+
+// Global update — no operator_id filter (used for pool bookings or platform_admin actions)
+export async function updateBookingStatusGlobal(
+  id: string,
+  status: BookingStatus,
+  extra?: Partial<Booking>,
+): Promise<Booking> {
+  const { data, error } = await supabase
+    .from('bookings')
+    .update({ status, updated_at: new Date().toISOString(), ...extra })
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) throw AppError.internal(`Failed to update booking: ${error.message}`);
+  return data as Booking;
+}
+
+// Assign an operator to a pool booking — only succeeds if currently unassigned
+export async function assignOperator(id: string, operator_id: string): Promise<Booking> {
+  const { data, error } = await supabase
+    .from('bookings')
+    .update({ operator_id, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .is('operator_id', null)
+    .select()
+    .single();
+
+  if (error) throw AppError.internal(`Failed to assign operator: ${error.message}`);
+  if (!data) throw AppError.conflict('Booking already has an operator assigned', 'ALREADY_ASSIGNED');
   return data as Booking;
 }

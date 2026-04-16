@@ -2,7 +2,7 @@
 
 export interface Booking {
   id: string
-  operator_id: string
+  operator_id: string | null
   client_user_id: string
   pricing_rule_id: string | null
   status: BookingStatus
@@ -154,6 +154,8 @@ export function createApiClient(token: string) {
         const qs = params ? '?' + new URLSearchParams(params).toString() : ''
         return req<{ data: Booking[] }>('GET', `/bookings${qs}`)
       },
+      listMarketplace: () =>
+        req<{ data: Booking[] }>('GET', '/bookings/marketplace'),
       get: (id: string) =>
         req<{ data: Booking }>('GET', `/bookings/${id}`),
       create: (body: CreateBookingBody) =>
@@ -162,6 +164,9 @@ export function createApiClient(token: string) {
         req<{ data: Booking }>('PATCH', `/bookings/${id}/confirm`),
       cancel: (id: string, reason?: string) =>
         req<{ data: Booking }>('PATCH', `/bookings/${id}/cancel`, { cancellation_reason: reason }),
+      assignOperator: (id: string, operator_id?: string) =>
+        req<{ data: Booking }>('PATCH', `/bookings/${id}/assign-operator`,
+          operator_id ? { operator_id } : {}),
     },
     trips: {
       list: () => req<{ data: Trip[] }>('GET', '/trips'),
@@ -169,6 +174,10 @@ export function createApiClient(token: string) {
     },
     drivers: {
       list: () => req<{ data: Driver[] }>('GET', '/drivers'),
+      available: (segment?: string) => {
+        const qs = segment ? `?segment=${encodeURIComponent(segment)}` : ''
+        return req<{ data: Driver[]; count: number }>('GET', `/drivers/available${qs}`)
+      },
       availableFor: (bookingId: string) =>
         req<{ data: Driver[] }>('GET', `/dispatch/available-drivers/${bookingId}`),
     },
