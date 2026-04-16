@@ -9,6 +9,7 @@ import {
   findDriverByIdGlobal,
   findDriverByUserId,
   updateDriverAvailability,
+  hasActiveTrip,
 } from './drivers.repository';
 
 const isPlatformWide = (role: string) => role === 'platform_admin' || role === 'superadmin';
@@ -48,6 +49,14 @@ export async function setAvailability(
   status: DriverAvailabilityStatus,
   user: AuthUser,
 ): Promise<Driver> {
+  // Guard 1: cannot free a driver who still has an active trip
+  if (status === 'available' && await hasActiveTrip(id)) {
+    throw AppError.unprocessable(
+      'Cannot set driver as available while they have an active trip',
+      'DRIVER_ON_ACTIVE_TRIP',
+    );
+  }
+
   // Drivers can only update their own availability
   if (user.role === 'driver') {
     const ownDriver = await findDriverByUserId(user.id);

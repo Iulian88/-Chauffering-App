@@ -1,7 +1,7 @@
 import { Request } from 'express';
 import { Trip, TripStatus, BookingStatus, AuthUser } from '../../shared/types/domain';
 import { AppError } from '../../shared/errors/AppError';
-import { getSupabaseForRequest } from '../../shared/db/supabase.client';
+import { getSupabaseForRequest, supabase } from '../../shared/db/supabase.client';
 import {
   insertTrip,
   findTripById,
@@ -122,6 +122,17 @@ export async function createTrip(input: CreateTripInput, user: AuthUser): Promis
       `Driver is not available (current status: '${driver.availability_status}')`,
       'DRIVER_NOT_AVAILABLE',
     );
+  }
+
+  // Guard 2: defense-in-depth — block double-assignment even if availability_status is stale
+  const { count: activeTripCount } = await supabase
+    .from('trips')
+    .select('id', { count: 'exact', head: true })
+    .eq('driver_id', input.driver_id)
+    .in('status', ['assigned', 'en_route']);
+
+  if ((activeTripCount ?? 0) > 0) {
+    throw AppError.conflict('Driver already has an active trip', 'DRIVER_ALREADY_ASSIGNED');
   }
 
   // Verify vehicle belongs to the booking's operator
@@ -292,6 +303,11 @@ export async function startTrip(
     throw AppError.forbidden('Trip is not in your operator scope');
   }
 
+  // Guard 3: trip must have a driver before it can be started
+  if (!trip.driver_id) {
+    throw AppError.unprocessable('No driver assigned to this trip', 'NO_DRIVER_ASSIGNED');
+  }
+
   if (trip.status !== 'assigned') {
     throw AppError.unprocessable(
       `Trip is not in assigned state (current: '${trip.status}')`,
@@ -359,8 +375,16 @@ export async function completeTrip(
   // Sync booking → completed
   await setBookingStatus(trip.booking_id, trip.operator_id, 'completed');
 
-  // Free the driver
-  await setDriverAvailability(trip.driver_id, 'available');
+  // Free the driver — Guard 5: idempotent, skip if driver is already available
+  const { data: driverStatus } = await supabase
+    .from('drivers')
+    .select('availability_status')
+    .eq('id', trip.driver_id)
+    .maybeSingle();
+
+  if (driverStatus?.availability_status !== 'available') {
+    await setDriverAvailability(trip.driver_id, 'available');
+  }
 
   return updated as Trip;
 }

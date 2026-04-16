@@ -176,3 +176,15 @@ export async function updateDriverAvailability(
   if (error) throw AppError.internal(`Failed to update driver: ${error.message}`);
   return data as Driver;
 }
+
+// Guard helper: returns true if driver has any active trip (assigned or en_route)
+export async function hasActiveTrip(driver_id: string): Promise<boolean> {
+  const { count, error } = await supabase
+    .from('trips')
+    .select('id', { count: 'exact', head: true })
+    .eq('driver_id', driver_id)
+    .in('status', ['assigned', 'en_route']);
+
+  if (error) throw AppError.internal(error.message);
+  return (count ?? 0) > 0;
+}
