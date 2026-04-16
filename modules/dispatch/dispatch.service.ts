@@ -95,8 +95,9 @@ export async function getAvailableDriversForBooking(
   const booking = await findBookingById(bookingId, user.operator_id as string);
   if (!booking) throw AppError.notFound('Booking');
 
-  // 1. Find available drivers via driver_vehicle_assignments (new schema source of truth).
-  //    Join path: drivers → driver_vehicle_assignments (is_primary=true) → vehicles (segment + is_active)
+  // MIGRATED: using driver_vehicle_assignments instead of assigned_driver_id
+  // Join path: drivers → driver_vehicle_assignments (is_primary=true) → vehicles (segment + is_active)
+  // vehicles.assigned_driver_id is deprecated and intentionally NOT used here.
   const { data: drivers, error } = await supabase
     .from('drivers')
     .select(`

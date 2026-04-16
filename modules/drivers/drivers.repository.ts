@@ -89,9 +89,9 @@ export async function findAvailableDriversByOperator(
   operator_id: string,
   segment?: string,
 ): Promise<Driver[]> {
-  // Join through driver_vehicle_assignments (new schema source of truth).
-  // Falls back gracefully: drivers with no assignment rows are excluded,
-  // which is the correct behaviour — an unassigned driver cannot be dispatched.
+  // MIGRATED: using driver_vehicle_assignments instead of assigned_driver_id
+  // Join path: drivers → driver_vehicle_assignments (is_primary=true) → vehicles (is_active=true)
+  // Drivers with no primary vehicle assignment are intentionally excluded.
   const { data, error } = await supabase
     .from('drivers')
     .select(`
