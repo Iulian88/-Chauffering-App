@@ -1,5 +1,7 @@
+import { Request } from 'express';
 import { Trip, TripStatus, BookingStatus, AuthUser } from '../../shared/types/domain';
 import { AppError } from '../../shared/errors/AppError';
+import { getSupabaseForRequest } from '../../shared/db/supabase.client';
 import {
   insertTrip,
   findTripById,
@@ -265,4 +267,51 @@ async function advanceTripStatus(
   }
 
   return updated;
+}
+
+// ─── Operator: start trip (assigned → en_route) ───────────────────────────────
+// Allows an operator or dispatcher to force-start an assigned trip,
+// bypassing the driver-accept step. Sets trip to en_route and booking to in_progress.
+export async function startTrip(
+  req: Request,
+  tripId: string,
+  user: AuthUser,
+): Promise<Trip> {
+  const db = getSupabaseForRequest(req);
+
+  const { data: trip, error } = await db
+    .from('trips')
+    .select('*')
+    .eq('id', tripId)
+    .single();
+
+  if (error || !trip) throw AppError.notFound('Trip');
+
+  // Scope: operator staff can only act on their own operator's trips
+  if (!isPlatformWide(user.role) && user.operator_id && trip.operator_id !== user.operator_id) {
+    throw AppError.forbidden('Trip is not in your operator scope');
+  }
+
+  if (trip.status !== 'assigned') {
+    throw AppError.unprocessable(
+      `Trip is not in assigned state (current: '${trip.status}')`,
+      'TRIP_NOT_STARTABLE',
+    );
+  }
+
+  const now = new Date().toISOString();
+
+  const { data: updated, error: updateError } = await db
+    .from('trips')
+    .update({ status: 'en_route', en_route_at: now, updated_at: now })
+    .eq('id', tripId)
+    .select()
+    .single();
+
+  if (updateError || !updated) throw AppError.internal('Failed to start trip');
+
+  // Sync booking → in_progress
+  await setBookingStatus(trip.booking_id, trip.operator_id, 'in_progress');
+
+  return updated as Trip;
 }

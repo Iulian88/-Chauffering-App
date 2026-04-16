@@ -7,6 +7,7 @@ import {
   handleAcceptTrip,
   handleRefuseTrip,
   handleUpdateTripStatus,
+  handleStartTrip,
 } from './trips.controller';
 
 const router = Router();
@@ -57,6 +58,14 @@ router.patch(
   requireAuth,
   requireRole('driver'),
   handleUpdateTripStatus,
+);
+
+// Operator force-starts an assigned trip (assigned → en_route, booking → in_progress)
+router.post(
+  '/:id/start',
+  requireAuth,
+  requireRole('operator_admin', 'operator_dispatcher', 'platform_admin', 'superadmin'),
+  handleStartTrip,
 );
 
 export default router;
