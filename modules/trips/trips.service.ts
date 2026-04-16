@@ -315,3 +315,52 @@ export async function startTrip(
 
   return updated as Trip;
 }
+
+// ─── Operator: complete trip (en_route → completed) ───────────────────────────
+// Marks trip completed, syncs booking to completed, and frees the driver.
+export async function completeTrip(
+  req: Request,
+  tripId: string,
+  user: AuthUser,
+): Promise<Trip> {
+  const db = getSupabaseForRequest(req);
+
+  const { data: trip, error } = await db
+    .from('trips')
+    .select('*')
+    .eq('id', tripId)
+    .single();
+
+  if (error || !trip) throw AppError.notFound('Trip');
+
+  // Scope: operator staff can only act on their own operator's trips
+  if (!isPlatformWide(user.role) && user.operator_id && trip.operator_id !== user.operator_id) {
+    throw AppError.forbidden('Trip is not in your operator scope');
+  }
+
+  if (trip.status !== 'en_route') {
+    throw AppError.unprocessable(
+      `Trip is not in en_route state (current: '${trip.status}')`,
+      'TRIP_NOT_COMPLETABLE',
+    );
+  }
+
+  const now = new Date().toISOString();
+
+  const { data: updated, error: updateError } = await db
+    .from('trips')
+    .update({ status: 'completed', completed_at: now, updated_at: now })
+    .eq('id', tripId)
+    .select()
+    .single();
+
+  if (updateError || !updated) throw AppError.internal('Failed to complete trip');
+
+  // Sync booking → completed
+  await setBookingStatus(trip.booking_id, trip.operator_id, 'completed');
+
+  // Free the driver
+  await setDriverAvailability(trip.driver_id, 'available');
+
+  return updated as Trip;
+}

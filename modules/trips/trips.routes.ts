@@ -8,6 +8,7 @@ import {
   handleRefuseTrip,
   handleUpdateTripStatus,
   handleStartTrip,
+  handleCompleteTrip,
 } from './trips.controller';
 
 const router = Router();
@@ -66,6 +67,14 @@ router.post(
   requireAuth,
   requireRole('operator_admin', 'operator_dispatcher', 'platform_admin', 'superadmin'),
   handleStartTrip,
+);
+
+// Operator completes a trip (en_route → completed, booking → completed, driver → available)
+router.post(
+  '/:id/complete',
+  requireAuth,
+  requireRole('operator_admin', 'operator_dispatcher', 'platform_admin', 'superadmin'),
+  handleCompleteTrip,
 );
 
 export default router;

@@ -12,6 +12,7 @@ import {
   refuseTrip,
   advanceTripStatusByDriver,
   startTrip,
+  completeTrip,
 } from './trips.service';
 
 export async function handleListTrips(req: Request, res: Response): Promise<void> {
@@ -49,5 +50,10 @@ export async function handleUpdateTripStatus(req: Request, res: Response): Promi
 
 export async function handleStartTrip(req: Request, res: Response): Promise<void> {
   const trip = await startTrip(req, req.params.id, req.user!);
+  res.json({ success: true, data: trip });
+}
+
+export async function handleCompleteTrip(req: Request, res: Response): Promise<void> {
+  const trip = await completeTrip(req, req.params.id, req.user!);
   res.json({ success: true, data: trip });
 }
