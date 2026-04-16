@@ -22,8 +22,16 @@ export function DispatchModal({ bookingId, api, onClose, onSuccess }: Props) {
 
   useEffect(() => {
     api.drivers.availableFor(bookingId)
-      .then(({ data }) => setDrivers(data))
-      .catch(e => setError(e instanceof Error ? e.message : 'Failed to load drivers'))
+      .then((res) => {
+        console.log('[DispatchModal] RAW RESPONSE:', JSON.stringify(res))
+        const data = (res as { success?: boolean; data?: Driver[] }).data
+        console.log('[DispatchModal] PARSED DRIVERS:', JSON.stringify(data), '| length:', data?.length ?? 'undefined')
+        setDrivers(data ?? [])
+      })
+      .catch(e => {
+        console.error('[DispatchModal] FETCH ERROR:', e)
+        setError(e instanceof Error ? e.message : 'Failed to load drivers')
+      })
       .finally(() => setLoading(false))
   }, [api, bookingId])
 

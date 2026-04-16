@@ -167,5 +167,14 @@ export async function getAvailableDriversForBooking(
   });
 
   console.log('RESPONSE DRIVER COUNT:', result.length, '| first vehicle count:', (result[0]?.vehicles as unknown[])?.length ?? 0);
+  console.log('SERVICE RESULT (shape check):', JSON.stringify(result.map(d => {
+    const dr = d as Record<string, unknown>;
+    return {
+      id: dr.id,
+      availability_status: dr.availability_status,
+      vehicles: (d.vehicles as unknown[])?.length ?? 'MISSING',
+      user_profiles: d.user_profiles ?? 'MISSING',
+    };
+  })));
   return result;
 }
