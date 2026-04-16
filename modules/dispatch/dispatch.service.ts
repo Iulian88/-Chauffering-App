@@ -95,13 +95,23 @@ export async function getAvailableDriversForBooking(
   const booking = await findBookingById(bookingId, user.operator_id as string);
   if (!booking) throw AppError.notFound('Booking');
 
-  // 1. Find available drivers with a matching-segment vehicle
+  // 1. Find available drivers via driver_vehicle_assignments (new schema source of truth).
+  //    Join path: drivers → driver_vehicle_assignments (is_primary=true) → vehicles (segment + is_active)
   const { data: drivers, error } = await supabase
     .from('drivers')
-    .select('id, user_id, license_number, availability_status')
+    .select(`
+      id, user_id, license_number, availability_status,
+      driver_vehicle_assignments!inner(
+        is_primary,
+        vehicles!inner(id, plate, make, model, year, segment)
+      )
+    `)
     .eq('operator_id', user.operator_id)
     .eq('is_active', true)
-    .eq('availability_status', 'available');
+    .eq('availability_status', 'available')
+    .eq('driver_vehicle_assignments.is_primary', true)
+    .eq('driver_vehicle_assignments.vehicles.segment', booking.segment)
+    .eq('driver_vehicle_assignments.vehicles.is_active', true);
 
   if (error) throw AppError.internal(error.message);
   if (!drivers || drivers.length === 0) return [];
@@ -117,25 +127,13 @@ export async function getAvailableDriversForBooking(
     (profiles ?? []).map((p: { id: string; full_name: string; phone: string | null }) => [p.id, p]),
   );
 
-  // 3. Fetch vehicles for these drivers that match the booking segment
-  const driverIds = drivers.map((d: Record<string, unknown>) => d.id as string);
-  const { data: vehicles } = await supabase
-    .from('vehicles')
-    .select('id, plate, make, model, year, segment, assigned_driver_id')
-    .in('assigned_driver_id', driverIds)
-    .eq('segment', booking.segment)
-    .eq('is_active', true);
-
-  const vehicleMap = new Map(
-    (vehicles ?? []).map((v: Record<string, unknown>) => [v.assigned_driver_id as string, v]),
-  );
-
-  // 4. Merge and only return drivers that have a matching vehicle
-  return drivers
-    .filter((d: Record<string, unknown>) => vehicleMap.has(d.id as string))
-    .map((d: Record<string, unknown>) => ({
+  // 3. Merge — vehicle comes from the assignment join, not assigned_driver_id
+  return (drivers as unknown as Record<string, unknown>[]).map(d => {
+    const assignments = (d.driver_vehicle_assignments as { vehicles: Record<string, unknown> }[]) ?? [];
+    return {
       ...d,
       user_profiles: profileMap.get(d.user_id as string) ?? null,
-      vehicles: [vehicleMap.get(d.id as string)].filter(Boolean),
-    }));
+      vehicles: assignments.map(a => a.vehicles),
+    };
+  });
 }

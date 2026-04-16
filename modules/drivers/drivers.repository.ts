@@ -89,27 +89,48 @@ export async function findAvailableDriversByOperator(
   operator_id: string,
   segment?: string,
 ): Promise<Driver[]> {
-  let query = supabase
+  // Join through driver_vehicle_assignments (new schema source of truth).
+  // Falls back gracefully: drivers with no assignment rows are excluded,
+  // which is the correct behaviour — an unassigned driver cannot be dispatched.
+  const { data, error } = await supabase
     .from('drivers')
-    .select('*, vehicles(id, segment, is_active, assigned_driver_id)')
+    .select(`
+      *,
+      driver_vehicle_assignments!inner(
+        is_primary,
+        vehicles!inner(id, segment, is_active, plate, make, model)
+      )
+    `)
     .eq('operator_id', operator_id)
     .eq('availability_status', 'available')
-    .eq('is_active', true);
+    .eq('is_active', true)
+    .eq('driver_vehicle_assignments.is_primary', true)
+    .eq('driver_vehicle_assignments.vehicles.is_active', true);
 
-  const { data, error } = await query;
   if (error) throw AppError.internal(error.message);
 
-  let drivers = (data ?? []) as unknown as (Driver & { vehicles: { id: string; segment: string; is_active: boolean }[] })[];
+  type RawDriver = Driver & {
+    driver_vehicle_assignments: {
+      is_primary: boolean;
+      vehicles: { id: string; segment: string; is_active: boolean; plate: string; make: string; model: string };
+    }[];
+  };
 
-  // If a segment filter is given, keep only drivers who have at least one active
-  // vehicle of that segment assigned to them
+  let drivers = (data ?? []) as unknown as RawDriver[];
+
   if (segment) {
     drivers = drivers.filter(d =>
-      (d.vehicles ?? []).some(v => v.is_active && v.segment === segment),
+      (d.driver_vehicle_assignments ?? []).some(
+        a => a.vehicles.is_active && a.vehicles.segment === segment,
+      ),
     );
   }
 
-  return drivers as unknown as Driver[];
+  // Normalise: expose vehicles[] on the driver object for callers that use it
+  return drivers.map(d => ({
+    ...d,
+    vehicles: d.driver_vehicle_assignments.map(a => a.vehicles),
+  })) as unknown as Driver[];
 }
 
 export async function findDriverByUserId(user_id: string): Promise<Driver | null> {
