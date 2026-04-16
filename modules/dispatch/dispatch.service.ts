@@ -150,12 +150,22 @@ export async function getAvailableDriversForBooking(
   );
 
   // 3. Merge — vehicle comes from the assignment join, not assigned_driver_id
-  return (drivers as unknown as Record<string, unknown>[]).map(d => {
-    const assignments = (d.driver_vehicle_assignments as { vehicles: Record<string, unknown> }[]) ?? [];
+  const result = (drivers as unknown as Record<string, unknown>[]).map(d => {
+    // driver_vehicle_assignments may come back as an object (to-one) in some PostgREST
+    // versions — normalise to array so .map() never throws.
+    const raw = d.driver_vehicle_assignments;
+    const assignments: { vehicles: Record<string, unknown> }[] = Array.isArray(raw)
+      ? (raw as { vehicles: Record<string, unknown> }[])
+      : raw
+        ? [raw as { vehicles: Record<string, unknown> }]
+        : [];
     return {
       ...d,
       user_profiles: profileMap.get(d.user_id as string) ?? null,
       vehicles: assignments.map(a => a.vehicles),
     };
   });
+
+  console.log('RESPONSE DRIVER COUNT:', result.length, '| first vehicle count:', (result[0]?.vehicles as unknown[])?.length ?? 0);
+  return result;
 }
