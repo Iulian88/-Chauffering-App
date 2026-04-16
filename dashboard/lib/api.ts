@@ -66,6 +66,25 @@ export interface Driver {
 
 export type DriverAvailability = 'available' | 'busy' | 'offline'
 
+export interface DispatchMeta {
+  totalDrivers: number
+  withVehicle: number
+  exactMatches: number
+  fallbackUsed: boolean
+  reasonIfEmpty: string | null
+  matchType: 'exact' | 'fallback' | 'none'
+  degraded: boolean
+}
+
+export interface OperatorHealth {
+  operatorId: string
+  drivers: number
+  vehicles: number
+  segmentsCovered: string[]
+  missingSegments: string[]
+  hasNoCoverage: boolean
+}
+
 export interface Vehicle {
   id: string
   operator_id: string
@@ -181,7 +200,7 @@ export function createApiClient(token: string) {
         return req<{ data: Driver[]; count: number }>('GET', `/drivers/available${qs}`)
       },
       availableFor: (bookingId: string) =>
-        req<{ success: boolean; data: Driver[] }>('GET', `/dispatch/available-drivers/${bookingId}`),
+        req<{ success: boolean; data: Driver[]; meta: DispatchMeta }>('GET', `/dispatch/available-drivers/${bookingId}`),
       setAvailability: (id: string, status: DriverAvailability) =>
         req<{ data: Driver }>('PATCH', `/drivers/${id}/availability`, { availability_status: status }),
     },
@@ -193,6 +212,10 @@ export function createApiClient(token: string) {
         req<{ data: Trip }>('POST', '/dispatch/assign', { booking_id, driver_id, vehicle_id }),
       unassign: (tripId: string) =>
         req<{ message: string }>('DELETE', `/dispatch/trips/${tripId}/unassign`),
+    },
+    operators: {
+      health: (operatorId: string) =>
+        req<{ data: OperatorHealth }>('GET', `/operators/${operatorId}/health`),
     },
   }
 }

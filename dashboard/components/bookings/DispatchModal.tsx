@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { X, AlertCircle } from 'lucide-react'
-import { type ApiClient, type Driver } from '@/lib/api'
+import { type ApiClient, type Driver, type DispatchMeta } from '@/lib/api'
 import { Button } from '@/components/ui/Button'
 import { StatusBadge } from '@/components/ui/StatusBadge'
 
@@ -19,17 +19,15 @@ export function DispatchModal({ bookingId, api, onClose, onSuccess }: Props) {
   const [loading, setLoading]     = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError]         = useState<string | null>(null)
+  const [meta, setMeta]           = useState<DispatchMeta | null>(null)
 
   useEffect(() => {
     api.drivers.availableFor(bookingId)
       .then((res) => {
-        console.log('[DispatchModal] RAW RESPONSE:', JSON.stringify(res))
-        const data = (res as { success?: boolean; data?: Driver[] }).data
-        console.log('[DispatchModal] PARSED DRIVERS:', JSON.stringify(data), '| length:', data?.length ?? 'undefined')
-        setDrivers(data ?? [])
+        setDrivers(res.data ?? [])
+        setMeta(res.meta ?? null)
       })
       .catch(e => {
-        console.error('[DispatchModal] FETCH ERROR:', e)
         setError(e instanceof Error ? e.message : 'Failed to load drivers')
       })
       .finally(() => setLoading(false))
@@ -81,14 +79,47 @@ export function DispatchModal({ bookingId, api, onClose, onSuccess }: Props) {
           )}
 
           {!loading && !error && drivers.length === 0 && (
-            <div className="flex items-center gap-3 rounded-lg bg-border-subtle/50 border border-border px-4 py-4">
-              <AlertCircle size={16} className="text-secondary flex-shrink-0" />
-              <p className="text-sm text-secondary">No available drivers at this time.</p>
+            <div className="flex items-start gap-3 rounded-lg bg-border-subtle/50 border border-border px-4 py-4">
+              <AlertCircle size={16} className="text-secondary flex-shrink-0 mt-0.5" />
+              <div className="text-sm text-secondary space-y-1">
+                <p className="font-medium">No drivers available</p>
+                {meta?.reasonIfEmpty && (
+                  <p className="text-xs text-muted">Reason: {meta.reasonIfEmpty}</p>
+                )}
+                {meta && (
+                  <p className="text-xs text-muted">
+                    Pool: {meta.totalDrivers} drivers · {meta.withVehicle} with vehicle · {meta.exactMatches} segment match
+                  </p>
+                )}
+                {meta?.fallbackUsed && (
+                  <p className="text-xs text-accent">Fallback segment was used</p>
+                )}
+              </div>
             </div>
           )}
 
           {!loading && drivers.length > 0 && (
             <div className="space-y-1.5">
+              {meta && (
+                <div className="flex items-center gap-2 mb-2">
+                  {meta.matchType === 'exact' && (
+                    <span className="text-xs text-green-500 bg-green-500/10 border border-green-500/20 rounded px-2 py-0.5">
+                      Exact segment match
+                    </span>
+                  )}
+                  {meta.matchType === 'fallback' && (
+                    <span className="text-xs text-amber-500 bg-amber-500/10 border border-amber-500/20 rounded px-2 py-0.5">
+                      Fallback segment match
+                    </span>
+                  )}
+                  {meta.degraded && (
+                    <div className="flex items-center gap-1.5 text-xs text-amber-400 border border-amber-500/20 rounded px-2 py-0.5 bg-amber-500/5">
+                      <AlertCircle size={11} />
+                      <span>DEGRADED_MATCH — no exact coverage for this segment</span>
+                    </div>
+                  )}
+                </div>
+              )}
               <label className="block text-xs font-medium text-secondary uppercase tracking-wider">
                 Select Driver
               </label>

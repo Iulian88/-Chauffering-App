@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { requireAuth, requireRole } from '../../shared/middleware/auth.middleware';
-import { manualAssign, unassignTrip, getAvailableDriversForBooking } from './dispatch.service';
+import { manualAssign, unassignTrip, getAvailableDriversForBooking, auditDispatchData, autoDispatch } from './dispatch.service';
 
 const ManualAssignSchema = z.object({
   booking_id: z.string().uuid(),
@@ -40,10 +40,32 @@ router.get(
   requireAuth,
   requireRole('operator_admin', 'operator_dispatcher', 'platform_admin', 'superadmin'),
   async (req: Request, res: Response) => {
-    const drivers = await getAvailableDriversForBooking(req.params.bookingId, req.user!, req);
-    const payload = { success: true, data: drivers };
-    console.log('API RESPONSE: count=', drivers.length, '| keys=', Object.keys(payload));
-    res.json(payload);
+    const result = await getAvailableDriversForBooking(req.params.bookingId, req.user!, req);
+    res.json({ success: true, ...result });
+  },
+);
+
+// GET /dispatch/audit — data quality report
+router.get(
+  '/audit',
+  requireAuth,
+  requireRole('platform_admin', 'superadmin'),
+  async (_req: Request, res: Response) => {
+    const report = await auditDispatchData();
+    res.json({ success: true, data: report });
+  },
+);
+
+// POST /dispatch/auto/:bookingId — system-initiated automatic dispatch
+// Calls the full dispatch engine, picks the best driver, assigns atomically.
+router.post(
+  '/auto/:bookingId',
+  requireAuth,
+  requireRole('operator_admin', 'operator_dispatcher', 'platform_admin', 'superadmin'),
+  async (req: Request, res: Response) => {
+    const bookingId = z.string().uuid().parse(req.params.bookingId);
+    const { trip, meta } = await autoDispatch(bookingId);
+    res.status(201).json({ success: true, data: { trip, meta } });
   },
 );
 

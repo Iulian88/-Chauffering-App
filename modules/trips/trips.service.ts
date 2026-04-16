@@ -17,7 +17,6 @@ import { findBookingByIdGlobal } from '../bookings/bookings.repository';
 import { setBookingStatus } from '../bookings/bookings.service';
 import { setDriverAvailability } from '../drivers/drivers.repository';
 import { CreateTripInput, RefuseTripInput, UpdateTripStatusInput } from './trips.schema';
-
 // ─── Transition map ───────────────────────────────────────────────────────────
 // Maps current trip status → allowed next statuses
 const ALLOWED_TRANSITIONS: Record<TripStatus, TripStatus[]> = {
@@ -96,7 +95,9 @@ export async function createTrip(input: CreateTripInput, user: AuthUser): Promis
     );
   }
 
-  // Guard: prevent double-assignment
+  // Guard: prevent double-assignment via active-trip check
+  // NOTE: the definitive atomicity guard is inside assign_driver_atomic (DB function).
+  // This pre-flight check gives a faster, human-readable error before hitting the DB lock.
   const existingTrip = await findActiveTripForBooking(input.booking_id);
   if (existingTrip) {
     throw AppError.conflict(
@@ -105,7 +106,7 @@ export async function createTrip(input: CreateTripInput, user: AuthUser): Promis
     );
   }
 
-  // Verify driver is available and belongs to the booking's operator
+  // Verify driver exists, is active, and belongs to the booking's operator
   const { data: driver, error: driverError } = await (
     await import('../../shared/db/supabase.client')
   ).supabase
@@ -117,23 +118,6 @@ export async function createTrip(input: CreateTripInput, user: AuthUser): Promis
 
   if (driverError || !driver) throw AppError.notFound('Driver');
   if (!driver.is_active) throw AppError.unprocessable('Driver is inactive', 'DRIVER_INACTIVE');
-  if (driver.availability_status !== 'available') {
-    throw AppError.conflict(
-      `Driver is not available (current status: '${driver.availability_status}')`,
-      'DRIVER_NOT_AVAILABLE',
-    );
-  }
-
-  // Guard 2: defense-in-depth — block double-assignment even if availability_status is stale
-  const { count: activeTripCount } = await supabase
-    .from('trips')
-    .select('id', { count: 'exact', head: true })
-    .eq('driver_id', input.driver_id)
-    .in('status', ['assigned', 'en_route']);
-
-  if ((activeTripCount ?? 0) > 0) {
-    throw AppError.conflict('Driver already has an active trip', 'DRIVER_ALREADY_ASSIGNED');
-  }
 
   // Verify vehicle belongs to the booking's operator
   const { data: vehicle, error: vehicleError } = await (
@@ -148,28 +132,45 @@ export async function createTrip(input: CreateTripInput, user: AuthUser): Promis
   if (vehicleError || !vehicle) throw AppError.notFound('Vehicle');
   if (!vehicle.is_active) throw AppError.unprocessable('Vehicle is inactive', 'VEHICLE_INACTIVE');
 
-  // All guards passed — create trip
-  const trip = await insertTrip({
-    booking_id: input.booking_id,
-    driver_id: input.driver_id,
-    vehicle_id: input.vehicle_id,
-    operator_id: scopedOperatorId,
-    status: 'assigned',
+  // ── Atomic dispatch lock ──────────────────────────────────────────────────
+  // The DB function serializes concurrent requests via SELECT FOR UPDATE on the
+  // driver row, then atomically: creates the trip, sets driver → busy, and
+  // advances booking → dispatched.  App-level checks above are fast pre-flights;
+  // the RPC is the authoritative correctness gate.
+  const { data: rpcRows, error: rpcError } = await supabase.rpc('assign_driver_atomic', {
+    p_driver_id:   input.driver_id,
+    p_booking_id:  input.booking_id,
+    p_vehicle_id:  input.vehicle_id,
+    p_operator_id: scopedOperatorId,
+    p_assigned_by: user.id,
   });
 
-  // Set driver → busy
-  await setDriverAvailability(input.driver_id, 'busy');
+  if (rpcError) throw AppError.internal(`assign_driver_atomic failed: ${rpcError.message}`);
 
-  // Advance booking → dispatched
-  await setBookingStatus(input.booking_id, scopedOperatorId, 'dispatched');
+  const rpcResult = Array.isArray(rpcRows) ? rpcRows[0] : rpcRows;
 
-  // Audit log
+  if (!rpcResult?.success) {
+    const code: string = rpcResult?.error_code ?? 'DISPATCH_FAILED';
+    if (code === 'DRIVER_ALREADY_ASSIGNED') {
+      throw AppError.conflict(
+        'Driver is not available — already assigned to an active trip',
+        'DRIVER_ALREADY_ASSIGNED',
+      );
+    }
+    throw AppError.unprocessable(code, code);
+  }
+
+  // Fetch the full trip record created by the RPC
+  const trip = await findTripByIdGlobal(rpcResult.trip_id as string);
+  if (!trip) throw AppError.internal('Trip was created atomically but could not be retrieved');
+
+  // Audit log (non-atomic with the assignment — acceptable for audit trail)
   await insertDispatchLog({
-    trip_id: trip.id,
-    booking_id: input.booking_id,
-    driver_id: input.driver_id,
+    trip_id:     trip.id,
+    booking_id:  input.booking_id,
+    driver_id:   input.driver_id,
     assigned_by: user.id,
-    action: 'assigned',
+    action:      'assigned',
   });
 
   return trip;

@@ -33,8 +33,8 @@ export async function handleCreateBooking(req: Request, res: Response): Promise<
     throw AppError.badRequest('operator_id is required');
   }
 
-  const booking = await createBookingForClient(input, user, operator_id);
-  res.status(201).json({ data: booking });
+  const { booking, warning } = await createBookingForClient(input, user, operator_id);
+  res.status(201).json({ data: booking, ...(warning ? { warning } : {}) });
 }
 
 export async function handleListBookings(req: Request, res: Response): Promise<void> {

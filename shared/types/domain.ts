@@ -25,6 +25,14 @@ export type BookingStatus =
   | 'completed'
   | 'cancelled';
 
+// Tracks the dispatch pipeline lifecycle independently of booking status.
+export type DispatchStatus =
+  | 'pending'      // just created, awaiting validation
+  | 'ready'        // health check passed, can be auto-dispatched
+  | 'dispatching'  // auto-dispatch in flight
+  | 'assigned'     // driver successfully assigned
+  | 'failed';      // dispatch failed, see dispatch_failures table
+
 export type TripStatus =
   | 'assigned'
   | 'accepted'
@@ -148,6 +156,7 @@ export interface Booking {
   cancellation_reason: string | null;
   cancelled_by: string | null;
   cancelled_at: string | null;
+  dispatch_status?: DispatchStatus;
   created_at: string;
   updated_at: string;
 }
@@ -179,6 +188,14 @@ export interface DispatchLog {
   action: DispatchAction;
   outcome: DispatchOutcome | null;
   note: string | null;
+  created_at: string;
+}
+
+export interface DispatchFailure {
+  id: string;
+  booking_id: string;
+  reason: string;
+  meta: Record<string, unknown> | null;
   created_at: string;
 }
 

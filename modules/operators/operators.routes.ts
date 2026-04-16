@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { requireAuth, requireRole } from '../../shared/middleware/auth.middleware';
 import { supabase } from '../../shared/db/supabase.client';
 import { AppError } from '../../shared/errors/AppError';
+import { checkOperatorHealth } from '../dispatch/dispatch.service';
 
 const router = Router();
 
@@ -65,6 +66,25 @@ router.patch(
 
     if (error) throw AppError.internal(error.message);
     res.json({ data });
+  },
+);
+
+// GET /operators/:id/health — dispatch readiness for an operator
+router.get(
+  '/:id/health',
+  requireAuth,
+  requireRole('superadmin', 'platform_admin', 'operator_admin'),
+  async (req: Request, res: Response) => {
+    const user = req.user!;
+    if (
+      user.role !== 'platform_admin' &&
+      user.role !== 'superadmin' &&
+      user.operator_id !== req.params.id
+    ) {
+      throw AppError.forbidden('Access denied');
+    }
+    const health = await checkOperatorHealth(req.params.id);
+    res.json({ data: health });
   },
 );
 

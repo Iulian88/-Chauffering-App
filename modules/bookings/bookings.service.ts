@@ -1,4 +1,4 @@
-import { Booking, BookingStatus, AuthUser } from '../../shared/types/domain';
+import { Booking, BookingStatus, DispatchStatus, AuthUser } from '../../shared/types/domain';
 import { AppError } from '../../shared/errors/AppError';
 import { calculatePrice, defaultSnapshotForSegment } from '../pricing/pricing.service';
 import { getActiveRuleSnapshot } from '../pricing/pricing.repository';
@@ -14,6 +14,7 @@ import {
   ListBookingsFilter,
 } from './bookings.repository';
 import { CreateBookingInput, CancelBookingInput } from './bookings.schema';
+import { checkOperatorHealth } from '../dispatch/dispatch.service';
 
 // ─── Cancellable statuses ─────────────────────────────────────────────────────
 const CANCELLABLE_STATUSES: BookingStatus[] = ['pending', 'confirmed', 'dispatched'];
@@ -23,7 +24,7 @@ export async function createBookingForClient(
   input: CreateBookingInput,
   user: AuthUser,
   operator_id: string | null,
-): Promise<Booking> {
+): Promise<{ booking: Booking; warning: string | null }> {
   // Resolve pricing snapshot — skip rule lookup for pool bookings (operator not yet assigned)
   const snapshot =
     (operator_id ? await getActiveRuleSnapshot(operator_id, input.segment) : null) ??
@@ -42,7 +43,37 @@ export async function createBookingForClient(
     ? client_price - driver_price
     : null;
 
-  return createBooking({
+  // ── Pre-create operator health guard ──────────────────────────────────────
+  // When an operator is known at booking time, validate they can serve this segment.
+  // Warnings are non-blocking (booking is created) but surfaced in the response.
+  let segmentWarning: string | null = null;
+  if (operator_id) {
+    const health = await checkOperatorHealth(operator_id);
+    if (health.drivers === 0) {
+      // Hard block: booking cannot ever be served by this operator
+      throw AppError.unprocessable(
+        `Operator has no active drivers. Booking cannot be created for this operator.`,
+        'OPERATOR_HAS_NO_DRIVERS',
+      );
+    }
+    if (!health.segmentsCovered.includes(input.segment)) {
+      // Soft warning: operator has drivers but none matching this segment (or any fallback tier)
+      segmentWarning = 'NO_SEGMENT_COVERAGE';
+      console.warn(
+        '[BOOKING] Segment coverage warning: operator', operator_id,
+        'has no coverage for segment', input.segment,
+        '| covered:', health.segmentsCovered,
+      );
+    }
+  }
+
+  // dispatch_status reflects health check outcome:
+  // 'ready'   — operator confirmed + segment covered → can be auto-dispatched
+  // 'pending' — no operator yet, or segment gap warning → needs human review first
+  const dispatchStatus: DispatchStatus =
+    operator_id && segmentWarning === null ? 'ready' : 'pending';
+
+  const booking = await createBooking({
     operator_id,
     client_user_id: user.id,
     pricing_rule_id: snapshot.rule_id === 'default' ? null : snapshot.rule_id,
@@ -66,8 +97,10 @@ export async function createBookingForClient(
     client_price,
     driver_price,
     profit,
+    dispatch_status: dispatchStatus,
     status_details: undefined,
   } as Parameters<typeof createBooking>[0]);
+  return { booking, warning: segmentWarning };
 }
 
 // ─── List (operator) ──────────────────────────────────────────────────────────

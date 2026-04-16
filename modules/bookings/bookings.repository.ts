@@ -1,6 +1,6 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import { supabase } from '../../shared/db/supabase.client';
-import { Booking, BookingStatus } from '../../shared/types/domain';
+import { Booking, BookingStatus, DispatchStatus } from '../../shared/types/domain';
 import { AppError } from '../../shared/errors/AppError';
 
 export async function createBooking(
@@ -140,4 +140,16 @@ export async function assignOperator(id: string, operator_id: string): Promise<B
   if (error) throw AppError.internal(`Failed to assign operator: ${error.message}`);
   if (!data) throw AppError.conflict('Booking already has an operator assigned', 'ALREADY_ASSIGNED');
   return data as Booking;
+}
+
+// Update dispatch_status only — does not touch booking.status
+export async function setDispatchStatus(
+  bookingId: string,
+  status: DispatchStatus,
+): Promise<void> {
+  const { error } = await supabase
+    .from('bookings')
+    .update({ dispatch_status: status, updated_at: new Date().toISOString() })
+    .eq('id', bookingId);
+  if (error) throw AppError.internal(`Failed to update dispatch_status: ${error.message}`);
 }
