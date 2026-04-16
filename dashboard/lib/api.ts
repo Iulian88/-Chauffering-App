@@ -171,6 +171,8 @@ export function createApiClient(token: string) {
     trips: {
       list: () => req<{ data: Trip[] }>('GET', '/trips'),
       get: (id: string) => req<{ data: Trip }>('GET', `/trips/${id}`),
+      start: (id: string) => req<{ success: boolean; data: Trip }>('POST', `/trips/${id}/start`),
+      complete: (id: string) => req<{ success: boolean; data: Trip }>('POST', `/trips/${id}/complete`),
     },
     drivers: {
       list: () => req<{ data: Driver[] }>('GET', '/drivers'),

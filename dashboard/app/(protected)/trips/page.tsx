@@ -14,6 +14,7 @@ export default function TripsPage() {
   const [trips, setTrips]   = useState<Trip[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError]   = useState<string | null>(null)
+  const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({})
 
   const fetchTrips = useCallback(async () => {
     if (!api) return
@@ -26,6 +27,20 @@ export default function TripsPage() {
       setLoading(false)
     }
   }, [token]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleTripAction = useCallback(async (tripId: string, action: 'start' | 'complete') => {
+    if (!api) return
+    setActionLoading(prev => ({ ...prev, [tripId]: true }))
+    try {
+      if (action === 'start') await api.trips.start(tripId)
+      else await api.trips.complete(tripId)
+      await fetchTrips()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : `Failed to ${action} trip`)
+    } finally {
+      setActionLoading(prev => ({ ...prev, [tripId]: false }))
+    }
+  }, [api, fetchTrips])
 
   useEffect(() => { fetchTrips() }, [fetchTrips])
 
@@ -57,7 +72,7 @@ export default function TripsPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-card border-b border-border">
-                {['Trip ID', 'Booking', 'Driver ID', 'Status', 'Assigned', 'Completed'].map(h => (
+                {['Trip ID', 'Booking', 'Driver ID', 'Status', 'Assigned', 'Completed', 'Actions'].map(h => (
                   <th key={h} className="text-left px-5 py-3.5 text-xs font-medium text-muted uppercase tracking-wider">
                     {h}
                   </th>
@@ -84,6 +99,26 @@ export default function TripsPage() {
                   </td>
                   <td className="px-5 py-4 text-xs text-muted tabular-nums">
                     {trip.completed_at ? formatDateTime(trip.completed_at) : '—'}
+                  </td>
+                  <td className="px-5 py-4">
+                    {trip.status === 'assigned' && (
+                      <button
+                        onClick={() => handleTripAction(trip.id, 'start')}
+                        disabled={!!actionLoading[trip.id]}
+                        className="px-3 py-1.5 text-xs font-medium rounded-md bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white transition-colors"
+                      >
+                        {actionLoading[trip.id] ? 'Starting…' : 'Start Trip'}
+                      </button>
+                    )}
+                    {trip.status === 'en_route' && (
+                      <button
+                        onClick={() => handleTripAction(trip.id, 'complete')}
+                        disabled={!!actionLoading[trip.id]}
+                        className="px-3 py-1.5 text-xs font-medium rounded-md bg-[#4CAF7D] hover:bg-[#3a9e6a] disabled:opacity-50 disabled:cursor-not-allowed text-white transition-colors"
+                      >
+                        {actionLoading[trip.id] ? 'Completing…' : 'Complete Trip'}
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
