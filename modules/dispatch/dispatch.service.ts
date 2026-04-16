@@ -131,10 +131,11 @@ export async function getAvailableDriversForBooking(
     .eq('is_active', true)
     .eq('availability_status', 'available')
     .eq('driver_vehicle_assignments.is_primary', true)
-    .eq('driver_vehicle_assignments.vehicles.segment', booking.segment)
+    // .eq('driver_vehicle_assignments.vehicles.segment', booking.segment)  // TEMPORARILY REMOVED FOR SEGMENT MISMATCH TESTING
     .eq('driver_vehicle_assignments.vehicles.is_active', true);
 
   console.log('DRIVERS FOUND:', drivers?.length ?? 0);
+  console.log('AFTER SEGMENT REMOVAL - DRIVERS:', drivers?.length);
   if (error) throw AppError.internal(error.message);
   if (!drivers || drivers.length === 0) return [];
 
