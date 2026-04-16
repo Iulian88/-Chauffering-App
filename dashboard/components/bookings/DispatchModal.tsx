@@ -72,7 +72,7 @@ export function DispatchModal({ bookingId, api, onClose, onSuccess }: Props) {
             </div>
           )}
 
-          {!loading && drivers.length === 0 && (
+          {!loading && !error && drivers.length === 0 && (
             <div className="flex items-center gap-3 rounded-lg bg-border-subtle/50 border border-border px-4 py-4">
               <AlertCircle size={16} className="text-secondary flex-shrink-0" />
               <p className="text-sm text-secondary">No available drivers at this time.</p>

@@ -41,7 +41,7 @@ router.get(
   requireRole('operator_admin', 'operator_dispatcher', 'platform_admin', 'superadmin'),
   async (req: Request, res: Response) => {
     const drivers = await getAvailableDriversForBooking(req.params.bookingId, req.user!, req);
-    res.json({ data: drivers });
+    res.json({ success: true, data: drivers });
   },
 );
 

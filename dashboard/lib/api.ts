@@ -181,7 +181,7 @@ export function createApiClient(token: string) {
         return req<{ data: Driver[]; count: number }>('GET', `/drivers/available${qs}`)
       },
       availableFor: (bookingId: string) =>
-        req<{ data: Driver[] }>('GET', `/dispatch/available-drivers/${bookingId}`),
+        req<{ success: boolean; data: Driver[] }>('GET', `/dispatch/available-drivers/${bookingId}`),
       setAvailability: (id: string, status: DriverAvailability) =>
         req<{ data: Driver }>('PATCH', `/drivers/${id}/availability`, { availability_status: status }),
     },

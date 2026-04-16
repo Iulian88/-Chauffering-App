@@ -112,12 +112,8 @@ export async function getAvailableDriversForBooking(
     throw AppError.forbidden('Booking is not assigned to your operator');
   }
 
-  if (!operatorId) {
-    throw AppError.unprocessable(
-      'Booking must be assigned to an operator before dispatching',
-      'OPERATOR_NOT_ASSIGNED',
-    );
-  }
+  // If no operator is assigned yet, no drivers are scoped — return empty gracefully
+  if (!operatorId) return [];
 
   // MIGRATED: using driver_vehicle_assignments instead of assigned_driver_id
   // Join path: drivers → driver_vehicle_assignments (is_primary=true) → vehicles (segment + is_active)
