@@ -2,7 +2,7 @@ import { Request } from 'express';
 import { Trip, AuthUser } from '../../shared/types/domain';
 import { AppError } from '../../shared/errors/AppError';
 import { getSupabaseForRequest } from '../../shared/db/supabase.client';
-import { findBookingById } from '../bookings/bookings.repository';
+import { findBookingByIdGlobal } from '../bookings/bookings.repository';
 import { createTrip } from '../trips/trips.service';
 import { insertDispatchLog } from '../trips/trips.repository';
 
@@ -82,10 +82,6 @@ export async function unassignTrip(tripId: string, user: AuthUser, req: Request)
   });
 }
 
-/**
- * List available drivers for a given operator + segment.
- * Used by the operator UI to populate the assignment picker.
- */
 export async function getAvailableDriversForBooking(
   bookingId: string,
   user: AuthUser,
@@ -93,14 +89,35 @@ export async function getAvailableDriversForBooking(
 ): Promise<unknown[]> {
   console.log('AUTH HEADER:', req.headers.authorization);
 
-  if (user.role !== 'platform_admin' && user.role !== 'superadmin' && !user.operator_id) {
+  const isPlatformWide = user.role === 'platform_admin' || user.role === 'superadmin';
+  if (!isPlatformWide && !user.operator_id) {
     throw AppError.forbidden('No operator scope');
   }
 
   const db = getSupabaseForRequest(req);
 
-  const booking = await findBookingById(bookingId, user.operator_id as string, db);
+  // Fetch booking via service-role (auth already validated by middleware;
+  // using scoped client here triggers RLS and blocks the read as the operator
+  // auth.uid() does not satisfy row-level policies on the bookings table).
+  const booking = await findBookingByIdGlobal(bookingId);
+  console.log('BOOKING RESULT:', booking);
+
   if (!booking) throw AppError.notFound('Booking');
+
+  const operatorId = booking.operator_id;
+  console.log('OPERATOR ID:', operatorId);
+
+  // Enforce scope: operator staff can only dispatch bookings belonging to their operator
+  if (!isPlatformWide && operatorId !== user.operator_id) {
+    throw AppError.forbidden('Booking is not assigned to your operator');
+  }
+
+  if (!operatorId) {
+    throw AppError.unprocessable(
+      'Booking must be assigned to an operator before dispatching',
+      'OPERATOR_NOT_ASSIGNED',
+    );
+  }
 
   // MIGRATED: using driver_vehicle_assignments instead of assigned_driver_id
   // Join path: drivers → driver_vehicle_assignments (is_primary=true) → vehicles (segment + is_active)
@@ -114,13 +131,14 @@ export async function getAvailableDriversForBooking(
         vehicles!inner(id, plate, make, model, year, segment)
       )
     `)
-    .eq('operator_id', user.operator_id)
+    .eq('operator_id', operatorId)
     .eq('is_active', true)
     .eq('availability_status', 'available')
     .eq('driver_vehicle_assignments.is_primary', true)
     .eq('driver_vehicle_assignments.vehicles.segment', booking.segment)
     .eq('driver_vehicle_assignments.vehicles.is_active', true);
 
+  console.log('DRIVERS FOUND:', drivers?.length ?? 0);
   if (error) throw AppError.internal(error.message);
   if (!drivers || drivers.length === 0) return [];
 
