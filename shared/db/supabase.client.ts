@@ -1,4 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { Request } from 'express';
 import 'dotenv/config';
 
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -29,3 +30,22 @@ export const supabaseAuth: SupabaseClient = createClient(supabaseUrl, supabaseAn
     persistSession: false,
   },
 });
+
+/**
+ * Returns a request-scoped Supabase client that forwards the caller's JWT.
+ * Queries run under the user's identity so Supabase RLS policies are applied
+ * correctly instead of being bypassed by the service-role key.
+ */
+export function getSupabaseForRequest(req: Request): SupabaseClient {
+  return createClient(supabaseUrl!, supabaseAnonKey!, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+    global: {
+      headers: {
+        Authorization: req.headers.authorization ?? '',
+      },
+    },
+  });
+}

@@ -11,7 +11,7 @@ const UpdateAvailabilitySchema = z.object({
 // ─── Controller ───────────────────────────────────────────────────────────────
 async function handleListAvailableDrivers(req: Request, res: Response): Promise<void> {
   const segment = typeof req.query.segment === 'string' ? req.query.segment : undefined;
-  const { drivers, count } = await listAvailableDrivers(req.user!, segment);
+  const { drivers, count } = await listAvailableDrivers(req, req.user!, segment);
   res.json({ data: drivers, count });
 }
 

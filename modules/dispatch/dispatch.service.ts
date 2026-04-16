@@ -1,6 +1,7 @@
+import { Request } from 'express';
 import { Trip, AuthUser } from '../../shared/types/domain';
 import { AppError } from '../../shared/errors/AppError';
-import { supabase } from '../../shared/db/supabase.client';
+import { getSupabaseForRequest } from '../../shared/db/supabase.client';
 import { findBookingById } from '../bookings/bookings.repository';
 import { createTrip } from '../trips/trips.service';
 import { insertDispatchLog } from '../trips/trips.repository';
@@ -28,11 +29,12 @@ export async function manualAssign(
  * Unassign a driver from a trip that hasn't been accepted yet.
  * Returns the booking to 'confirmed' so it can be reassigned.
  */
-export async function unassignTrip(tripId: string, user: AuthUser): Promise<void> {
+export async function unassignTrip(tripId: string, user: AuthUser, req: Request): Promise<void> {
+  const db = getSupabaseForRequest(req);
   const isPlatformWide = user.role === 'platform_admin' || user.role === 'superadmin';
   if (!isPlatformWide && !user.operator_id) throw AppError.forbidden('No operator scope');
 
-  const tripQuery = supabase.from('trips').select('*').eq('id', tripId);
+  const tripQuery = db.from('trips').select('*').eq('id', tripId);
   const { data: trip, error } = await (
     isPlatformWide ? tripQuery : tripQuery.eq('operator_id', user.operator_id)
   ).single();
@@ -52,19 +54,19 @@ export async function unassignTrip(tripId: string, user: AuthUser): Promise<void
   }
 
   // Cancel the trip
-  await supabase
+  await db
     .from('trips')
     .update({ status: 'cancelled', updated_at: new Date().toISOString() })
     .eq('id', tripId);
 
   // Release driver
-  await supabase
+  await db
     .from('drivers')
     .update({ availability_status: 'available', updated_at: new Date().toISOString() })
     .eq('id', trip.driver_id);
 
   // Return booking to confirmed — use trip.operator_id (the booking's actual owner)
-  await supabase
+  await db
     .from('bookings')
     .update({ status: 'confirmed', updated_at: new Date().toISOString() })
     .eq('id', trip.booking_id);
@@ -87,18 +89,23 @@ export async function unassignTrip(tripId: string, user: AuthUser): Promise<void
 export async function getAvailableDriversForBooking(
   bookingId: string,
   user: AuthUser,
+  req: Request,
 ): Promise<unknown[]> {
+  console.log('AUTH HEADER:', req.headers.authorization);
+
   if (user.role !== 'platform_admin' && user.role !== 'superadmin' && !user.operator_id) {
     throw AppError.forbidden('No operator scope');
   }
 
-  const booking = await findBookingById(bookingId, user.operator_id as string);
+  const db = getSupabaseForRequest(req);
+
+  const booking = await findBookingById(bookingId, user.operator_id as string, db);
   if (!booking) throw AppError.notFound('Booking');
 
   // MIGRATED: using driver_vehicle_assignments instead of assigned_driver_id
   // Join path: drivers → driver_vehicle_assignments (is_primary=true) → vehicles (segment + is_active)
   // vehicles.assigned_driver_id is deprecated and intentionally NOT used here.
-  const { data: drivers, error } = await supabase
+  const { data: drivers, error } = await db
     .from('drivers')
     .select(`
       id, user_id, license_number, availability_status,
@@ -119,7 +126,7 @@ export async function getAvailableDriversForBooking(
 
   // 2. Fetch user_profiles for name/phone display
   const userIds = drivers.map((d: Record<string, unknown>) => d.user_id as string);
-  const { data: profiles } = await supabase
+  const { data: profiles } = await db
     .from('user_profiles')
     .select('id, full_name, phone')
     .in('id', userIds);

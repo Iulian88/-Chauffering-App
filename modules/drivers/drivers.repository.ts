@@ -1,4 +1,5 @@
-import { supabase } from '../../shared/db/supabase.client';
+import { Request } from 'express';
+import { supabase, getSupabaseForRequest } from '../../shared/db/supabase.client';
 import { Driver, DriverAvailabilityStatus } from '../../shared/types/domain';
 import { AppError } from '../../shared/errors/AppError';
 
@@ -86,13 +87,15 @@ export async function findAllDrivers(): Promise<Driver[]> {
 }
 
 export async function findAvailableDriversByOperator(
+  req: Request,
   operator_id: string,
   segment?: string,
 ): Promise<Driver[]> {
+  const db = getSupabaseForRequest(req);
   // MIGRATED: using driver_vehicle_assignments instead of assigned_driver_id
   // Join path: drivers → driver_vehicle_assignments (is_primary=true) → vehicles (is_active=true)
   // Drivers with no primary vehicle assignment are intentionally excluded.
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('drivers')
     .select(`
       *,

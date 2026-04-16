@@ -1,3 +1,4 @@
+import { Request } from 'express';
 import { Driver, DriverAvailabilityStatus, AuthUser } from '../../shared/types/domain';
 import { AppError } from '../../shared/errors/AppError';
 import {
@@ -13,11 +14,12 @@ import {
 const isPlatformWide = (role: string) => role === 'platform_admin' || role === 'superadmin';
 
 export async function listAvailableDrivers(
+  req: Request,
   user: AuthUser,
   segment?: string,
 ): Promise<{ drivers: Driver[]; count: number }> {
   if (!user.operator_id) throw AppError.forbidden('No operator scope');
-  const drivers = await findAvailableDriversByOperator(user.operator_id, segment);
+  const drivers = await findAvailableDriversByOperator(req, user.operator_id, segment);
   return { drivers, count: drivers.length };
 }
 

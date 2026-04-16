@@ -1,3 +1,4 @@
+import { SupabaseClient } from '@supabase/supabase-js';
 import { supabase } from '../../shared/db/supabase.client';
 import { Booking, BookingStatus } from '../../shared/types/domain';
 import { AppError } from '../../shared/errors/AppError';
@@ -15,8 +16,12 @@ export async function createBooking(
   return booking as Booking;
 }
 
-export async function findBookingById(id: string, operator_id: string): Promise<Booking | null> {
-  const { data, error } = await supabase
+export async function findBookingById(
+  id: string,
+  operator_id: string,
+  db: SupabaseClient = supabase,
+): Promise<Booking | null> {
+  const { data, error } = await db
     .from('bookings')
     .select('*')
     .eq('id', id)
