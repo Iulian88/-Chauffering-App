@@ -94,11 +94,7 @@ export async function getAvailableDriversForBooking(
     throw AppError.forbidden('No operator scope');
   }
 
-  const db = getSupabaseForRequest(req);
-
-  // Fetch booking via service-role (auth already validated by middleware;
-  // using scoped client here triggers RLS and blocks the read as the operator
-  // auth.uid() does not satisfy row-level policies on the bookings table).
+  // Fetch booking via service-role (auth already validated by middleware)
   const booking = await findBookingByIdGlobal(bookingId);
   console.log('BOOKING RESULT:', booking);
 
@@ -106,19 +102,23 @@ export async function getAvailableDriversForBooking(
 
   const operatorId = booking.operator_id;
   console.log('OPERATOR ID:', operatorId);
+  console.log('BOOKING SEGMENT:', booking.segment);
+
+  // Null check FIRST: if booking has no operator yet, no drivers are scoped
+  if (!operatorId) return [];
 
   // Enforce scope: operator staff can only dispatch bookings belonging to their operator
   if (!isPlatformWide && operatorId !== user.operator_id) {
     throw AppError.forbidden('Booking is not assigned to your operator');
   }
 
-  // If no operator is assigned yet, no drivers are scoped — return empty gracefully
-  if (!operatorId) return [];
+  // Use service-role client for the driver query — auth is already validated by requireAuth
+  // middleware and scope is enforced above. The user-scoped (anon+JWT) client triggers RLS
+  // on driver_vehicle_assignments and vehicles, causing !inner joins to silently return zero
+  // rows when the policy does not grant the operator user direct read access.
+  const { supabase: serviceClient } = await import('../../shared/db/supabase.client');
 
-  // MIGRATED: using driver_vehicle_assignments instead of assigned_driver_id
-  // Join path: drivers → driver_vehicle_assignments (is_primary=true) → vehicles (segment + is_active)
-  // vehicles.assigned_driver_id is deprecated and intentionally NOT used here.
-  const { data: drivers, error } = await db
+  const { data: drivers, error } = await serviceClient
     .from('drivers')
     .select(`
       id, user_id, license_number, availability_status,
@@ -138,9 +138,9 @@ export async function getAvailableDriversForBooking(
   if (error) throw AppError.internal(error.message);
   if (!drivers || drivers.length === 0) return [];
 
-  // 2. Fetch user_profiles for name/phone display
+  // 2. Fetch user_profiles for name/phone display (service-role — same reason as above)
   const userIds = drivers.map((d: Record<string, unknown>) => d.user_id as string);
-  const { data: profiles } = await db
+  const { data: profiles } = await serviceClient
     .from('user_profiles')
     .select('id, full_name, phone')
     .in('id', userIds);
