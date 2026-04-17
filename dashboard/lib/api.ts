@@ -83,8 +83,6 @@ export interface Assignment {
   vehicle_id: string
   operator_id: string
   is_primary: boolean
-  assigned_at: string
-  unassigned_at: string | null
   // Joined
   driver?: { id: string; license_number: string; user_profiles?: { full_name: string; phone: string | null } }
   vehicle?: { id: string; plate: string; make: string; model: string; segment: VehicleSegment; is_active: boolean }

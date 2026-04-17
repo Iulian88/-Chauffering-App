@@ -27,12 +27,18 @@ router.get(
     }
 
     // Fetch vehicles with their primary assigned driver (via driver_vehicle_assignments)
-    const { data: rawVehicles, error } = await supabase
+    // superadmin/platform_admin may have operator_id = null → return all vehicles in that case
+    let vehicleQuery = supabase
       .from('vehicles')
       .select('id, operator_id, segment, plate, make, model, year, color, is_active, created_at, updated_at')
-      .eq('operator_id', operator_id as string)
       .eq('is_active', true)
       .order('created_at', { ascending: false });
+
+    if (operator_id) {
+      vehicleQuery = vehicleQuery.eq('operator_id', operator_id);
+    }
+
+    const { data: rawVehicles, error } = await vehicleQuery;
 
     if (error) throw AppError.internal(error.message);
     const vehicleIds = (rawVehicles ?? []).map((v: { id: string }) => v.id);

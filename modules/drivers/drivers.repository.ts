@@ -15,23 +15,48 @@ export async function findDriversByOperator(operator_id: string): Promise<Driver
   if (error) throw AppError.internal(error.message);
   if (!drivers || drivers.length === 0) return [];
 
-  // 2. Fetch matching user_profiles (user_profiles.id = drivers.user_id)
+  const driverIds = drivers.map((d: Record<string, unknown>) => d.id as string);
   const userIds = drivers.map((d: Record<string, unknown>) => d.user_id as string);
-  const { data: profiles } = await supabase
-    .from('user_profiles')
-    .select('id, full_name, phone')
-    .in('id', userIds);
+
+  // 2. Fetch user_profiles and primary assignments in parallel
+  const [{ data: profiles }, { data: assignments }] = await Promise.all([
+    supabase.from('user_profiles').select('id, full_name, phone').in('id', userIds),
+    supabase
+      .from('driver_vehicle_assignments')
+      .select('driver_id, vehicle_id')
+      .in('driver_id', driverIds)
+      .eq('is_primary', true),
+  ]);
+
+  // 3. Fetch the vehicles referenced by those assignments
+  const vehicleIds = (assignments ?? []).map((a: { vehicle_id: string }) => a.vehicle_id);
+  const { data: vehicles } = vehicleIds.length > 0
+    ? await supabase
+        .from('vehicles')
+        .select('id, plate, make, model, segment, is_active, year, color')
+        .in('id', vehicleIds)
+    : { data: [] };
 
   const profileMap = new Map(
     (profiles ?? []).map((p: { id: string; full_name: string; phone: string | null }) => [p.id, p]),
   );
+  const assignmentMap = new Map(
+    (assignments ?? []).map((a: { driver_id: string; vehicle_id: string }) => [a.driver_id, a.vehicle_id]),
+  );
+  const vehicleMap = new Map(
+    (vehicles ?? []).map((v: { id: string }) => [v.id, v]),
+  );
 
-  // 3. Merge
-  return drivers.map((d: Record<string, unknown>) => ({
-    ...d,
-    user_profiles: profileMap.get(d.user_id as string) ?? null,
-    vehicles: null,
-  })) as unknown as Driver[];
+  // 4. Merge
+  return drivers.map((d: Record<string, unknown>) => {
+    const vehicleId = assignmentMap.get(d.id as string);
+    const vehicle = vehicleId ? vehicleMap.get(vehicleId) : undefined;
+    return {
+      ...d,
+      user_profiles: profileMap.get(d.user_id as string) ?? null,
+      vehicles: vehicle ? [vehicle] : [],
+    };
+  }) as unknown as Driver[];
 }
 
 export async function findDriverById(id: string, operator_id: string): Promise<Driver | null> {
@@ -69,21 +94,45 @@ export async function findAllDrivers(): Promise<Driver[]> {
   if (error) throw AppError.internal(error.message);
   if (!drivers || drivers.length === 0) return [];
 
+  const driverIds = drivers.map((d: Record<string, unknown>) => d.id as string);
   const userIds = drivers.map((d: Record<string, unknown>) => d.user_id as string);
-  const { data: profiles } = await supabase
-    .from('user_profiles')
-    .select('id, full_name, phone')
-    .in('id', userIds);
+
+  const [{ data: profiles }, { data: assignments }] = await Promise.all([
+    supabase.from('user_profiles').select('id, full_name, phone').in('id', userIds),
+    supabase
+      .from('driver_vehicle_assignments')
+      .select('driver_id, vehicle_id')
+      .in('driver_id', driverIds)
+      .eq('is_primary', true),
+  ]);
+
+  const vehicleIds = (assignments ?? []).map((a: { vehicle_id: string }) => a.vehicle_id);
+  const { data: vehicles } = vehicleIds.length > 0
+    ? await supabase
+        .from('vehicles')
+        .select('id, plate, make, model, segment, is_active, year, color')
+        .in('id', vehicleIds)
+    : { data: [] };
 
   const profileMap = new Map(
     (profiles ?? []).map((p: { id: string; full_name: string; phone: string | null }) => [p.id, p]),
   );
+  const assignmentMap = new Map(
+    (assignments ?? []).map((a: { driver_id: string; vehicle_id: string }) => [a.driver_id, a.vehicle_id]),
+  );
+  const vehicleMap = new Map(
+    (vehicles ?? []).map((v: { id: string }) => [v.id, v]),
+  );
 
-  return drivers.map((d: Record<string, unknown>) => ({
-    ...d,
-    user_profiles: profileMap.get(d.user_id as string) ?? null,
-    vehicles: null,
-  })) as unknown as Driver[];
+  return drivers.map((d: Record<string, unknown>) => {
+    const vehicleId = assignmentMap.get(d.id as string);
+    const vehicle = vehicleId ? vehicleMap.get(vehicleId) : undefined;
+    return {
+      ...d,
+      user_profiles: profileMap.get(d.user_id as string) ?? null,
+      vehicles: vehicle ? [vehicle] : [],
+    };
+  }) as unknown as Driver[];
 }
 
 export async function findAvailableDriversByOperator(
