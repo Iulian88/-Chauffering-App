@@ -55,7 +55,6 @@ router.get(
       assigned_driver_id: assignmentMap.get(v.id as string) ?? null,
     }));
 
-    if (error) throw AppError.internal(error.message);
     res.json({ data: data ?? [], count: data?.length ?? 0 });
   },
 );
