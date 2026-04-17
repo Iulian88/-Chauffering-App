@@ -161,7 +161,7 @@ export async function getAvailableDriversForBooking(
 
   console.log('[DISPATCH] Stage 1 — booking:', booking.id, '| operator_id:', operatorId, '| segment:', bookingSegment);
 
-  if (!operatorId) {
+  if (!operatorId && !isPlatformWide) {
     console.log('[DISPATCH] Stage 1 — BLOCKED: BOOKING_HAS_NO_OPERATOR');
     return {
       data: [],
@@ -169,16 +169,25 @@ export async function getAvailableDriversForBooking(
     };
   }
 
+  if (!operatorId && isPlatformWide) {
+    console.log('[DISPATCH] Stage 1 — pool booking (no operator_id), platform-wide search enabled');
+  }
+
   if (!isPlatformWide && operatorId !== user.operator_id) {
     throw AppError.forbidden('Booking is not assigned to your operator');
   }
 
   // ── Stage 2: Fetch driver pool (no joins) ─────────────────────────────────
-  const { rows: rawDrivers } = await pool.query(
-    `SELECT id, user_id, license_number, availability_status FROM drivers
-     WHERE operator_id = $1 AND is_active = true AND availability_status = 'available'`,
-    [operatorId],
-  );
+  const { rows: rawDrivers } = operatorId
+    ? await pool.query(
+        `SELECT id, user_id, license_number, availability_status FROM drivers
+         WHERE operator_id = $1 AND is_active = true AND availability_status = 'available'`,
+        [operatorId],
+      )
+    : await pool.query(
+        `SELECT id, user_id, license_number, availability_status FROM drivers
+         WHERE is_active = true AND availability_status = 'available'`,
+      );
   console.log('[DISPATCH] Stage 2 — DRIVER_POOL_COUNT:', rawDrivers?.length ?? 0);
 
   if (!rawDrivers || rawDrivers.length === 0) {

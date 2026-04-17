@@ -125,7 +125,7 @@ export async function findAvailableDriversByOperator(
 ): Promise<Driver[]> {
   // Join path: drivers → driver_vehicle_assignments (is_primary=true) → vehicles (is_active=true)
   // Drivers with no primary vehicle assignment are intentionally excluded.
-  const segmentFilter = segment ? `AND v.segment = $3` : '';
+  const segmentFilter = segment ? `AND v.segment = $2` : '';
   const params: unknown[] = [operator_id];
   if (segment) params.push(segment);
 
