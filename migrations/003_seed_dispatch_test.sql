@@ -115,16 +115,14 @@ BEGIN
   FROM driver_vehicle_assignments
   WHERE driver_id  = v_driver_id
     AND vehicle_id = v_vehicle_id
-    AND is_primary = true
-    AND unassigned_at IS NULL;
+    AND is_primary = true;
 
   IF v_assignment_id IS NULL THEN
     -- Demote any other primary assignment this driver currently holds
     UPDATE driver_vehicle_assignments
     SET is_primary = false
     WHERE driver_id = v_driver_id
-      AND is_primary = true
-      AND unassigned_at IS NULL;
+      AND is_primary = true;
 
     INSERT INTO driver_vehicle_assignments (
       driver_id, vehicle_id, operator_id, is_primary

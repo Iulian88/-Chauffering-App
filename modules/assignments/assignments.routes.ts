@@ -66,7 +66,7 @@ router.patch(
   },
 );
 
-// DELETE /assignments/:id — soft delete (sets unassigned_at)
+// DELETE /assignments/:id — remove assignment
 router.delete(
   '/:id',
   requireAuth,

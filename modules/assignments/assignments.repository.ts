@@ -6,7 +6,6 @@ export interface Assignment {
   vehicle_id: string;
   operator_id: string;
   is_primary: boolean;
-  unassigned_at: string | null;
 }
 
 export interface AssignmentWithDetails extends Assignment {
@@ -29,8 +28,7 @@ export async function listAssignments(operator_id?: string): Promise<AssignmentW
   // Step 1: fetch assignments (no nested joins — avoids FK schema cache issues)
   let query = supabase
     .from('driver_vehicle_assignments')
-    .select('id, driver_id, vehicle_id, operator_id, is_primary, unassigned_at')
-    .is('unassigned_at', null)
+    .select('id, driver_id, vehicle_id, operator_id, is_primary')
     .order('id', { ascending: false });
 
   if (operator_id) {
@@ -95,7 +93,6 @@ export async function findAssignmentById(id: string): Promise<Assignment | null>
     .from('driver_vehicle_assignments')
     .select('*')
     .eq('id', id)
-    .is('unassigned_at', null)
     .single();
 
   if (error) return null;
@@ -108,7 +105,6 @@ export async function findPrimaryAssignmentForDriver(driver_id: string): Promise
     .select('*')
     .eq('driver_id', driver_id)
     .eq('is_primary', true)
-    .is('unassigned_at', null)
     .maybeSingle();
 
   if (error) return null;
@@ -142,8 +138,7 @@ export async function demoteExistingPrimary(driver_id: string): Promise<void> {
     .from('driver_vehicle_assignments')
     .update({ is_primary: false })
     .eq('driver_id', driver_id)
-    .eq('is_primary', true)
-    .is('unassigned_at', null);
+    .eq('is_primary', true);
 }
 
 export async function setPrimaryAssignment(id: string, driver_id: string): Promise<Assignment | null> {
@@ -153,15 +148,13 @@ export async function setPrimaryAssignment(id: string, driver_id: string): Promi
     .update({ is_primary: false })
     .eq('driver_id', driver_id)
     .eq('is_primary', true)
-    .neq('id', id)
-    .is('unassigned_at', null);
+    .neq('id', id);
 
   // Set this one as primary
   const { data, error } = await supabase
     .from('driver_vehicle_assignments')
     .update({ is_primary: true })
     .eq('id', id)
-    .is('unassigned_at', null)
     .select()
     .single();
 
@@ -172,6 +165,6 @@ export async function setPrimaryAssignment(id: string, driver_id: string): Promi
 export async function softDeleteAssignment(id: string): Promise<void> {
   await supabase
     .from('driver_vehicle_assignments')
-    .update({ is_primary: false, unassigned_at: new Date().toISOString() })
+    .delete()
     .eq('id', id);
 }
