@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
-import { supabaseAuth } from '../../shared/db/supabase.client';
+import { supabase, supabaseAuth } from '../../shared/db/supabase.client';
 import { pool } from '../../shared/db/pg.client';
 import { AppError } from '../../shared/errors/AppError';
 import { requireAuth } from '../../shared/middleware/auth.middleware';
@@ -10,7 +10,76 @@ const LoginSchema = z.object({
   password: z.string().min(6),
 });
 
+const RegisterSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(8, 'Password must be at least 8 characters'),
+  full_name: z.string().min(1).max(255).trim(),
+});
+
 const router = Router();
+
+// POST /auth/register — self-service client registration
+router.post('/register', async (req: Request, res: Response) => {
+  const { email, password, full_name } = RegisterSchema.parse(req.body);
+
+  // 1. Create user in Supabase Auth via service-role (email_confirm: true skips
+  //    the confirmation email so clients can log in immediately).
+  const { data: adminData, error: createError } = await supabase.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
+  });
+
+  if (createError || !adminData?.user) {
+    if (createError?.message?.toLowerCase().includes('already registered')) {
+      throw AppError.conflict('An account with this email already exists');
+    }
+    throw AppError.internal('Could not create account. Please try again later.');
+  }
+
+  const supabaseUid = adminData.user.id;
+
+  // 2. Insert the client profile into Railway Postgres.
+  //    On any failure we roll back the Supabase user so nothing is left dangling.
+  try {
+    await pool.query(
+      `INSERT INTO users (supabase_uid, email, full_name, role)
+       VALUES ($1, $2, $3, 'client')`,
+      [supabaseUid, email, full_name],
+    );
+  } catch (dbErr: any) {
+    await supabase.auth.admin.deleteUser(supabaseUid);
+    if (dbErr.code === '23505') {
+      throw AppError.conflict('An account with this email already exists');
+    }
+    throw dbErr;
+  }
+
+  // 3. Auto sign-in so the response includes a ready-to-use token.
+  const { data: sessionData, error: signInError } =
+    await supabaseAuth.auth.signInWithPassword({ email, password });
+
+  if (signInError || !sessionData?.session) {
+    // Account created but auto-login failed — not critical, client can call /login.
+    res.status(201).json({ data: { message: 'Account created. Please log in.' } });
+    return;
+  }
+
+  res.status(201).json({
+    data: {
+      access_token: sessionData.session.access_token,
+      refresh_token: sessionData.session.refresh_token,
+      expires_in: sessionData.session.expires_in,
+      user: {
+        id: adminData.user.id,
+        email,
+        full_name,
+        role: 'client',
+        operator_id: null,
+      },
+    },
+  });
+});
 
 // POST /auth/login
 router.post('/login', async (req: Request, res: Response) => {
