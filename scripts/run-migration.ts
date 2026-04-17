@@ -165,6 +165,7 @@ CREATE TABLE IF NOT EXISTS bookings (
 
   client_price          NUMERIC(10, 2),
   driver_price          NUMERIC(10, 2),
+  profit                NUMERIC(10, 2),
 
   channel               VARCHAR(100),
   partner               VARCHAR(100),
@@ -180,6 +181,21 @@ CREATE INDEX IF NOT EXISTS idx_bookings_status             ON bookings(status);
 CREATE INDEX IF NOT EXISTS idx_bookings_scheduled_at       ON bookings(scheduled_at);
 CREATE INDEX IF NOT EXISTS idx_bookings_operator_status    ON bookings(operator_id, status);
 CREATE INDEX IF NOT EXISTS idx_bookings_operator_scheduled ON bookings(operator_id, scheduled_at);
+
+-- Idempotent additions for tables that already exist on Railway
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS pricing_rule_id     UUID;
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS segment             TEXT NOT NULL DEFAULT 'executive';
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS dispatch_status     TEXT NOT NULL DEFAULT 'pending';
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS price_estimate      NUMERIC(10,2);
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS price_final         NUMERIC(10,2);
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS currency            TEXT NOT NULL DEFAULT 'RON';
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS pricing_snapshot    JSONB;
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS stops               JSONB;
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS cancellation_reason TEXT;
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS cancelled_by        UUID;
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS cancelled_at        TIMESTAMPTZ;
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS profit              NUMERIC(10,2);
+ALTER TABLE bookings ALTER COLUMN operator_id DROP NOT NULL;
 
 
 -- ============================================================

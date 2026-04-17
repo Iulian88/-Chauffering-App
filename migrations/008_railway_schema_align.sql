@@ -83,6 +83,7 @@ ALTER TABLE bookings ADD COLUMN IF NOT EXISTS stops            JSONB;
 ALTER TABLE bookings ADD COLUMN IF NOT EXISTS cancellation_reason TEXT;
 ALTER TABLE bookings ADD COLUMN IF NOT EXISTS cancelled_by     UUID;
 ALTER TABLE bookings ADD COLUMN IF NOT EXISTS cancelled_at     TIMESTAMPTZ;
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS profit           NUMERIC(10,2);
 
 -- ─────────────────────────────────────────────────────────────────────────
 -- 6. vehicles
