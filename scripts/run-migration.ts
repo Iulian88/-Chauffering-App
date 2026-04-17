@@ -142,7 +142,7 @@ CREATE TABLE IF NOT EXISTS bookings (
   id                    UUID            PRIMARY KEY DEFAULT gen_random_uuid(),
 
   operator_id           UUID            NOT NULL REFERENCES operators(id),
-  client_id             UUID            NOT NULL REFERENCES clients(id),
+  client_user_id        UUID            REFERENCES clients(id),
   driver_id             UUID            REFERENCES drivers(id) ON DELETE SET NULL,
   created_by_user_id    UUID            REFERENCES users(id) ON DELETE SET NULL,
 
@@ -174,7 +174,7 @@ CREATE TABLE IF NOT EXISTS bookings (
 );
 
 CREATE INDEX IF NOT EXISTS idx_bookings_operator_id        ON bookings(operator_id);
-CREATE INDEX IF NOT EXISTS idx_bookings_client_id          ON bookings(client_id);
+CREATE INDEX IF NOT EXISTS idx_bookings_client_user_id     ON bookings(client_user_id);
 CREATE INDEX IF NOT EXISTS idx_bookings_driver_id          ON bookings(driver_id);
 CREATE INDEX IF NOT EXISTS idx_bookings_status             ON bookings(status);
 CREATE INDEX IF NOT EXISTS idx_bookings_scheduled_at       ON bookings(scheduled_at);
