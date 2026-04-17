@@ -10,6 +10,9 @@ import {
   findDriverByUserId,
   updateDriverAvailability,
   hasActiveTrip,
+  findOrCreateSelfOperator,
+  createDriverRecord,
+  CreateDriverInput,
 } from './drivers.repository';
 
 const isPlatformWide = (role: string) => role === 'platform_admin' || role === 'superadmin';
@@ -28,9 +31,33 @@ export async function listDrivers(user: AuthUser): Promise<Driver[]> {
   if (!isPlatformWide(user.role) && !user.operator_id) {
     throw AppError.forbidden('No operator scope');
   }
-  return isPlatformWide(user.role)
+  const drivers = await (isPlatformWide(user.role)
     ? findAllDrivers()
-    : findDriversByOperator(user.operator_id as string);
+    : findDriversByOperator(user.operator_id as string));
+  console.log(`[drivers LIST] role=${user.role} operator_id=${user.operator_id ?? 'all'} count=${drivers.length}`);
+  return drivers;
+}
+
+export async function createDriver(
+  input: CreateDriverInput,
+  user: AuthUser,
+): Promise<Driver> {
+  const isSuperAdmin = isPlatformWide(user.role);
+
+  // Resolve operator_id: superadmin may supply it in input, operator staff always use their own
+  let operator_id: string | null = isSuperAdmin
+    ? (input.operator_id ?? user.operator_id)
+    : user.operator_id;
+
+  // No operator assigned → auto-find/create the shared self-operator
+  if (!operator_id) {
+    operator_id = await findOrCreateSelfOperator();
+    console.log(`[drivers CREATE] no operator supplied — using self-operator: ${operator_id}`);
+  }
+
+  const driver = await createDriverRecord({ ...input, operator_id });
+  console.log(`[drivers CREATE] created driver: ${driver.id} operator: ${operator_id}`);
+  return driver;
 }
 
 export async function getDriver(id: string, user: AuthUser): Promise<Driver> {

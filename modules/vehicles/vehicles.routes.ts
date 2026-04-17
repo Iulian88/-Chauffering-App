@@ -72,8 +72,13 @@ router.post(
   requireAuth,
   requireRole('operator_admin', 'platform_admin', 'superadmin'),
   async (req: Request, res: Response) => {
-    const { operator_id } = req.user!;
-    if (!operator_id) throw AppError.forbidden('No operator scope');
+    const { operator_id: userOperatorId, role } = req.user!;
+    const isSuperAdmin = role === 'platform_admin' || role === 'superadmin';
+    // superadmin/platform_admin may supply operator_id in body; operator staff always use their own
+    const operator_id = isSuperAdmin
+      ? (req.body.operator_id as string | undefined) ?? userOperatorId
+      : userOperatorId;
+    if (!operator_id) throw AppError.forbidden('No operator scope — supply operator_id in body');
 
     const input = VehicleSchema.parse(req.body);
     const { data, error } = await supabase
@@ -83,6 +88,7 @@ router.post(
       .single();
 
     if (error) throw AppError.internal(error.message);
+    console.log(`[vehicles POST] created vehicle ${(data as { id: string }).id} for operator ${operator_id}`);
     res.status(201).json({ data });
   },
 );
@@ -92,17 +98,26 @@ router.patch(
   requireAuth,
   requireRole('operator_admin', 'platform_admin', 'superadmin'),
   async (req: Request, res: Response) => {
-    const { operator_id } = req.user!;
-    if (!operator_id) throw AppError.forbidden('No operator scope');
+    const { operator_id: userOperatorId, role } = req.user!;
+    const isSuperAdmin = role === 'platform_admin' || role === 'superadmin';
+    if (!isSuperAdmin && !userOperatorId) throw AppError.forbidden('No operator scope');
 
     const updates = VehicleSchema.partial().parse(req.body);
-    const { data, error } = await supabase
-      .from('vehicles')
-      .update({ ...updates, updated_at: new Date().toISOString() })
-      .eq('id', req.params.id)
-      .eq('operator_id', operator_id)
-      .select()
-      .single();
+    // superadmin can edit any vehicle; operator staff restricted to their own fleet
+    const { data, error } = isSuperAdmin
+      ? await supabase
+          .from('vehicles')
+          .update({ ...updates, updated_at: new Date().toISOString() })
+          .eq('id', req.params.id)
+          .select()
+          .single()
+      : await supabase
+          .from('vehicles')
+          .update({ ...updates, updated_at: new Date().toISOString() })
+          .eq('id', req.params.id)
+          .eq('operator_id', userOperatorId!)
+          .select()
+          .single();
 
     if (error) throw AppError.internal(error.message);
     if (!data) throw AppError.notFound('Vehicle');

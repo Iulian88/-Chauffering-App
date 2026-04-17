@@ -237,3 +237,63 @@ export async function hasActiveTrip(driver_id: string): Promise<boolean> {
   if (error) throw AppError.internal(error.message);
   return (count ?? 0) > 0;
 }
+
+// ─── Self-operator helpers ────────────────────────────────────────────────────
+
+/**
+ * Returns the ID of the shared "Independent" self-operator, creating it if it
+ * does not yet exist. Used when a driver has no fleet operator assigned.
+ */
+export async function findOrCreateSelfOperator(): Promise<string> {
+  const { data: existing } = await supabase
+    .from('operators')
+    .select('id')
+    .eq('slug', 'independent')
+    .maybeSingle();
+
+  if (existing?.id) return existing.id as string;
+
+  const { data: created, error } = await supabase
+    .from('operators')
+    .insert({
+      name: 'Independent',
+      slug: 'independent',
+      timezone: 'UTC',
+      locale: 'en',
+      is_active: true,
+    })
+    .select('id')
+    .single();
+
+  if (error) throw AppError.internal(`Failed to create self-operator: ${error.message}`);
+  return (created as { id: string }).id;
+}
+
+export interface CreateDriverInput {
+  user_id: string;
+  operator_id?: string | null;
+  availability_status?: string;
+  license_number: string;
+  license_country: string;
+  license_expires_at: string; // ISO date string e.g. "2028-06-30"
+  is_active?: boolean;
+}
+
+export async function createDriverRecord(input: CreateDriverInput & { operator_id: string }): Promise<Driver> {
+  const { data, error } = await supabase
+    .from('drivers')
+    .insert({
+      user_id: input.user_id,
+      operator_id: input.operator_id,
+      availability_status: input.availability_status ?? 'available',
+      license_number: input.license_number,
+      license_country: input.license_country,
+      license_expires_at: input.license_expires_at,
+      is_active: input.is_active ?? true,
+    })
+    .select()
+    .single();
+
+  if (error) throw AppError.internal(error.message);
+  return data as Driver;
+}

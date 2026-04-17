@@ -64,6 +64,7 @@ export interface Operator {
   id: string;
   name: string;
   slug: string;
+  type: 'fleet' | 'self';   // fleet = company, self = independent driver operator
   timezone: string;
   locale: string;
   is_active: boolean;

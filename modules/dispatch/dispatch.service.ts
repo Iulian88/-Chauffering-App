@@ -81,12 +81,15 @@ export interface AvailableDriversResult {
 // Each key maps to an ordered list of acceptable vehicle segments.
 // First entry = exact match. Subsequent entries = fallback tiers.
 
+// Segment fallback priority map.
+// Format: booking_segment → [exact, fallback_tier_1, fallback_tier_2, ...]
+// A vehicle matching an earlier tier is always preferred over a later tier.
 const SEGMENT_PRIORITY: Record<string, string[]> = {
   prime_lux:  ['prime_lux', 'executive'],
-  business:   ['business', 'executive'],
   executive:  ['executive'],
+  business:   ['business', 'executive'],
   office_lux: ['office_lux', 'executive'],
-  ride:       ['ride'],
+  ride:       ['ride', 'business', 'executive'],  // ride can fall back to higher-tier vehicles
 };
 
 interface DriverWithVehicle {

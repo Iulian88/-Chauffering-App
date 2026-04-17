@@ -33,6 +33,10 @@ export async function handleCreateBooking(req: Request, res: Response): Promise<
     throw AppError.badRequest('operator_id is required');
   }
 
+  if (!operator_id) {
+    console.warn('[BOOKING] Pool booking created without operator_id', { user_id: user.id, role: user.role });
+  }
+
   const { booking, warning } = await createBookingForClient(input, user, operator_id);
   res.status(201).json({ data: booking, ...(warning ? { warning } : {}) });
 }

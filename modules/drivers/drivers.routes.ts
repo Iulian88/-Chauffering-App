@@ -1,12 +1,28 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { requireAuth, requireRole } from '../../shared/middleware/auth.middleware';
-import { listDrivers, listAvailableDrivers, getDriver, setAvailability } from './drivers.service';
+import { listDrivers, listAvailableDrivers, getDriver, setAvailability, createDriver } from './drivers.service';
 
-// ─── Schema ───────────────────────────────────────────────────────────────────
+// ─── Schemas ──────────────────────────────────────────────────────────────────
 const UpdateAvailabilitySchema = z.object({
   availability_status: z.enum(['available', 'busy', 'offline']),
 });
+
+const CreateDriverSchema = z.object({
+  user_id: z.string().uuid(),
+  license_number: z.string().min(2),
+  license_country: z.string().min(2).max(2),
+  license_expires_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD'),
+  operator_id: z.string().uuid().optional(),
+  availability_status: z.enum(['available', 'busy', 'offline']).optional(),
+  is_active: z.boolean().optional(),
+});
+
+async function handleCreateDriver(req: Request, res: Response): Promise<void> {
+  const input = CreateDriverSchema.parse(req.body);
+  const driver = await createDriver(input, req.user!);
+  res.status(201).json({ data: driver });
+}
 
 // ─── Controller ───────────────────────────────────────────────────────────────
 async function handleListAvailableDrivers(req: Request, res: Response): Promise<void> {
@@ -33,6 +49,16 @@ async function handleUpdateAvailability(req: Request, res: Response): Promise<vo
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
 const router = Router();
+
+// POST /drivers — create a driver (superadmin/platform_admin/operator_admin)
+// If operator_id is not supplied and caller is superadmin, auto-assigns the
+// shared "Independent" self-operator.
+router.post(
+  '/',
+  requireAuth,
+  requireRole('operator_admin', 'platform_admin', 'superadmin'),
+  handleCreateDriver,
+);
 
 // IMPORTANT: must be before /:id to avoid Express treating 'available' as an id param
 router.get(
