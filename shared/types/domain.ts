@@ -23,7 +23,10 @@ export type BookingStatus =
   | 'dispatched'
   | 'in_progress'
   | 'completed'
-  | 'cancelled';
+  | 'cancelled'
+  | 'pending_operator'    // client posted to marketplace; awaiting operator accept
+  | 'accepted_operator'  // operator claimed it; assigning driver
+  | 'pending_driver';    // on self-employed job board; awaiting driver claim
 
 // Tracks the dispatch pipeline lifecycle independently of booking status.
 export type DispatchStatus =
@@ -86,7 +89,7 @@ export interface UserProfile {
 export interface Driver {
   id: string;
   user_id: string;
-  operator_id: string;
+  operator_id: string | null;  // null = self-employed
   availability_status: DriverAvailabilityStatus;
   license_number: string;
   license_country: string;
@@ -128,6 +131,26 @@ export interface BookingStop {
   order: number;
 }
 
+export type DriverAffiliationStatus = 'pending' | 'active' | 'suspended';
+
+export interface DriverOperatorAffiliation {
+  id: string;
+  driver_id: string;
+  operator_id: string;
+  status: DriverAffiliationStatus;
+  commission_pct: number;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ClientFavoriteDriver {
+  id: string;
+  client_user_id: string;
+  driver_id: string;
+  created_at: string;
+}
+
 export interface Booking {
   id: string;
   operator_id: string | null;
@@ -158,6 +181,9 @@ export interface Booking {
   cancelled_by: string | null;
   cancelled_at: string | null;
   dispatch_status?: DispatchStatus;
+  accepted_by_operator_id: string | null;
+  offer_expires_at: string | null;
+  marketplace_visible: boolean;
   created_at: string;
   updated_at: string;
 }

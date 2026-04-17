@@ -9,6 +9,7 @@ import {
   Users,
   Car,
   Link2,
+  Store,
   LogOut,
   ChevronRight,
 } from 'lucide-react'
@@ -16,12 +17,13 @@ import { useAuth } from '@/context/auth-context'
 import { cn } from '@/lib/utils'
 
 const NAV = [
-  { label: 'Dashboard',   href: '/',            icon: LayoutDashboard, exact: true },
-  { label: 'Bookings',    href: '/bookings',    icon: BookMarked,       exact: false },
-  { label: 'Trips',       href: '/trips',       icon: Route,            exact: false },
-  { label: 'Drivers',     href: '/drivers',     icon: Users,            exact: false },
-  { label: 'Fleet',       href: '/vehicles',    icon: Car,              exact: false },
-  { label: 'Assignments', href: '/assignments', icon: Link2,            exact: false },
+  { label: 'Dashboard',   href: '/',             icon: LayoutDashboard, exact: true },
+  { label: 'Bookings',    href: '/bookings',     icon: BookMarked,       exact: false },
+  { label: 'Trips',       href: '/trips',        icon: Route,            exact: false },
+  { label: 'Drivers',     href: '/drivers',      icon: Users,            exact: false },
+  { label: 'Fleet',       href: '/vehicles',     icon: Car,              exact: false },
+  { label: 'Assignments', href: '/assignments',  icon: Link2,            exact: false },
+  { label: 'Marketplace', href: '/marketplace',  icon: Store,            exact: false },
 ]
 
 export function Sidebar() {

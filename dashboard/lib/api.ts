@@ -35,6 +35,9 @@ export type BookingStatus =
   | 'in_progress'
   | 'completed'
   | 'cancelled'
+  | 'pending_operator'
+  | 'accepted_operator'
+  | 'pending_driver'
 
 export type VehicleSegment = 'ride' | 'business' | 'executive' | 'office_lux' | 'prime_lux'
 
@@ -117,6 +120,62 @@ export interface Vehicle {
   is_active: boolean
   created_at: string
   updated_at: string
+}
+
+// ─── Marketplace types ────────────────────────────────────────────────────────
+
+export interface MarketplaceBooking {
+  id: string
+  segment: VehicleSegment
+  status: BookingStatus
+  pickup_address: string
+  pickup_lat: number
+  pickup_lng: number
+  dropoff_address: string
+  dropoff_lat: number
+  dropoff_lng: number
+  scheduled_at: string
+  currency: string
+  distance_km: number
+  duration_sec: number
+  client_price: number | null
+  driver_price: number | null
+  profit: number | null
+  offer_expires_at: string | null
+  marketplace_visible: boolean
+  created_at: string
+}
+
+export interface MarketplaceOperator {
+  id: string
+  name: string
+  slug: string
+  type: 'fleet' | 'self'
+  timezone: string
+  locale: string
+}
+
+export interface DriverAffiliation {
+  id: string
+  driver_id: string
+  operator_id: string
+  status: 'pending' | 'active' | 'suspended'
+  commission_pct: number | null
+  note: string | null
+  created_at: string
+  updated_at: string
+  operator_name?: string
+  driver_license?: string
+  driver_availability?: string
+}
+
+export interface ClientFavorite {
+  id: string
+  client_user_id: string
+  driver_id: string
+  created_at: string
+  availability_status: string | null
+  license_country: string | null
 }
 
 export interface Trip {
@@ -249,6 +308,34 @@ export function createApiClient(token: string) {
     segments: {
       list: () =>
         req<{ data: Segment[] }>('GET', '/segments'),
+    },
+    marketplace: {
+      listOperators: () =>
+        req<{ data: MarketplaceOperator[] }>('GET', '/marketplace/operators'),
+      listRequests: (segment?: string) => {
+        const qs = segment ? `?segment=${encodeURIComponent(segment)}` : ''
+        return req<{ data: MarketplaceBooking[] }>('GET', `/marketplace/requests${qs}`)
+      },
+      acceptRequest: (id: string) =>
+        req<{ data: MarketplaceBooking }>('POST', `/marketplace/requests/${id}/accept`),
+      listJobs: (segment?: string) => {
+        const qs = segment ? `?segment=${encodeURIComponent(segment)}` : ''
+        return req<{ data: MarketplaceBooking[] }>('GET', `/marketplace/jobs${qs}`)
+      },
+      claimJob: (id: string) =>
+        req<{ data: unknown }>('POST', `/marketplace/jobs/${id}/claim`),
+      listAffiliations: () =>
+        req<{ data: DriverAffiliation[] }>('GET', '/marketplace/affiliations'),
+      requestAffiliation: (operator_id: string, note?: string | null) =>
+        req<{ data: DriverAffiliation }>('POST', '/marketplace/affiliations', { operator_id, note }),
+      updateAffiliation: (id: string, status: string, commission_pct?: number | null) =>
+        req<{ data: DriverAffiliation }>('PATCH', `/marketplace/affiliations/${id}`, { status, commission_pct }),
+      listFavorites: () =>
+        req<{ data: ClientFavorite[] }>('GET', '/marketplace/favorites'),
+      addFavorite: (driver_id: string) =>
+        req<{ data: ClientFavorite }>('POST', '/marketplace/favorites', { driver_id }),
+      removeFavorite: (driver_id: string) =>
+        req<void>('DELETE', `/marketplace/favorites/${driver_id}`),
     },
   }
 }

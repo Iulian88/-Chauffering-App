@@ -166,12 +166,14 @@ export async function setDriverAvailability(
 
 export async function updateDriverAvailability(
   driver_id: string,
-  operator_id: string,
+  operator_id: string | null,
   status: DriverAvailabilityStatus,
 ): Promise<Driver> {
   const { rows } = await pool.query(
     `UPDATE drivers SET availability_status = $1, updated_at = now()
-     WHERE id = $2 AND operator_id = $3 RETURNING *`,
+     WHERE id = $2
+       AND (operator_id = $3 OR ($3::text IS NULL AND operator_id IS NULL))
+     RETURNING *`,
     [status, driver_id, operator_id],
   );
   if (!rows[0]) throw AppError.internal('Failed to update driver');

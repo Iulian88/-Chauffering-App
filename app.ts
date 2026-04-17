@@ -18,6 +18,7 @@ import dispatchRoutes from './modules/dispatch/dispatch.routes';
 import pricingRoutes from './modules/pricing/pricing.routes';
 import assignmentRoutes from './modules/assignments/assignments.routes';
 import segmentRoutes from './modules/segments/segments.routes';
+import marketplaceRoutes from './modules/marketplace/marketplace.routes';
 
 const app = express();
 
@@ -49,6 +50,7 @@ v1.use('/dispatch',    dispatchRoutes);
 v1.use('/pricing',     pricingRoutes);
 v1.use('/assignments', assignmentRoutes);
 v1.use('/segments',    segmentRoutes);
+v1.use('/marketplace', marketplaceRoutes);
 
 app.use('/api/v1', v1);
 

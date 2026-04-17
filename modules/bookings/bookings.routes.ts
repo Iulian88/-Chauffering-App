@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { requireAuth, requireRole } from '../../shared/middleware/auth.middleware';
+import { filterPricing } from '../../shared/middleware/filterPricing';
 import {
   handleCreateBooking,
   handleListBookings,
@@ -11,6 +12,9 @@ import {
 } from './bookings.controller';
 
 const router = Router();
+
+// Strip price fields based on caller role (client / driver)
+router.use(filterPricing);
 
 // Client creates a booking
 router.post(

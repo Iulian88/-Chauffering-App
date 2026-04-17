@@ -14,21 +14,27 @@ interface StatusConfig {
 
 const STATUS_MAP: Record<string, StatusConfig> = {
   // Booking
-  pending:     { label: 'Pending',     text: 'text-[#8A8A94]', bg: 'bg-[#18181C]' },
-  confirmed:   { label: 'Confirmed',   text: 'text-[#5B8AF7]', bg: 'bg-[#0D1629]' },
-  dispatched:  { label: 'Dispatched',  text: 'text-accent',    bg: 'bg-accent-muted' },
-  in_progress: { label: 'In Progress', text: 'text-[#4CAF7D]', bg: 'bg-[#0D1E15]' },
-  completed:   { label: 'Completed',   text: 'text-primary',   bg: 'bg-[#1A1A1E]' },
-  cancelled:   { label: 'Cancelled',   text: 'text-[#E05252]', bg: 'bg-[#1E0D0D]' },
+  pending:            { label: 'Pending',          text: 'text-[#8A8A94]', bg: 'bg-[#18181C]' },
+  confirmed:          { label: 'Confirmed',         text: 'text-[#5B8AF7]', bg: 'bg-[#0D1629]' },
+  dispatched:         { label: 'Dispatched',        text: 'text-accent',    bg: 'bg-accent-muted' },
+  in_progress:        { label: 'In Progress',       text: 'text-[#4CAF7D]', bg: 'bg-[#0D1E15]' },
+  completed:          { label: 'Completed',         text: 'text-primary',   bg: 'bg-[#1A1A1E]' },
+  cancelled:          { label: 'Cancelled',         text: 'text-[#E05252]', bg: 'bg-[#1E0D0D]' },
+  pending_operator:   { label: 'Awaiting Operator', text: 'text-[#D4A853]', bg: 'bg-[#1E1608]' },
+  accepted_operator:  { label: 'Operator Accepted', text: 'text-[#5B8AF7]', bg: 'bg-[#0D1629]' },
+  pending_driver:     { label: 'Awaiting Driver',   text: 'text-[#D4A853]', bg: 'bg-[#1E1608]' },
   // Driver
-  available:   { label: 'Available',   text: 'text-[#4CAF7D]', bg: 'bg-[#0D1E15]' },
-  busy:        { label: 'On Trip',     text: 'text-accent',    bg: 'bg-accent-muted' },
-  offline:     { label: 'Offline',     text: 'text-[#8A8A94]', bg: 'bg-[#18181C]' },
+  available:          { label: 'Available',         text: 'text-[#4CAF7D]', bg: 'bg-[#0D1E15]' },
+  busy:               { label: 'On Trip',           text: 'text-accent',    bg: 'bg-accent-muted' },
+  offline:            { label: 'Offline',           text: 'text-[#8A8A94]', bg: 'bg-[#18181C]' },
   // Trip
-  assigned:    { label: 'Assigned',    text: 'text-accent',    bg: 'bg-accent-muted' },
-  accepted:    { label: 'Accepted',    text: 'text-[#5B8AF7]', bg: 'bg-[#0D1629]' },
-  en_route:    { label: 'En Route',    text: 'text-[#4CAF7D]', bg: 'bg-[#0D1E15]' },
-  arrived:     { label: 'Arrived',     text: 'text-[#4CAF7D]', bg: 'bg-[#0D1E15]' },
+  assigned:           { label: 'Assigned',          text: 'text-accent',    bg: 'bg-accent-muted' },
+  accepted:           { label: 'Accepted',          text: 'text-[#5B8AF7]', bg: 'bg-[#0D1629]' },
+  en_route:           { label: 'En Route',          text: 'text-[#4CAF7D]', bg: 'bg-[#0D1E15]' },
+  arrived:            { label: 'Arrived',           text: 'text-[#4CAF7D]', bg: 'bg-[#0D1E15]' },
+  // Affiliation
+  active:             { label: 'Active',            text: 'text-[#4CAF7D]', bg: 'bg-[#0D1E15]' },
+  suspended:          { label: 'Suspended',         text: 'text-[#E05252]', bg: 'bg-[#1E0D0D]' },
 }
 
 interface Props {
