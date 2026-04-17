@@ -183,6 +183,27 @@ CREATE INDEX IF NOT EXISTS idx_bookings_operator_scheduled ON bookings(operator_
 
 
 -- ============================================================
+-- SEGMENTS
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS segments (
+  name        TEXT        PRIMARY KEY,
+  label       TEXT        NOT NULL,
+  is_active   BOOLEAN     NOT NULL DEFAULT true,
+  sort_order  INT         NOT NULL DEFAULT 0,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+INSERT INTO segments (name, label, sort_order) VALUES
+  ('ride',       'Standard Ride',  1),
+  ('business',   'Business Class', 2),
+  ('executive',  'Executive',      3),
+  ('office_lux', 'Office Luxury',  4),
+  ('prime_lux',  'Prime Luxury',   5)
+ON CONFLICT (name) DO NOTHING;
+
+
+-- ============================================================
 -- UPDATED_AT TRIGGER
 -- ============================================================
 

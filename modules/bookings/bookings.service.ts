@@ -98,7 +98,6 @@ export async function createBookingForClient(
     driver_price,
     profit,
     dispatch_status: dispatchStatus,
-    status_details: undefined,
   } as Parameters<typeof createBooking>[0]);
   return { booking, warning: segmentWarning };
 }
