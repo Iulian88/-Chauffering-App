@@ -126,22 +126,35 @@ export async function createTrip(input: CreateTripInput, user: AuthUser): Promis
     );
   }
 
-  // Verify driver exists, is active, and belongs to the booking's operator
-  const { rows: driverRows } = await pool.query(
-    `SELECT id, availability_status, is_active, operator_id FROM drivers
-     WHERE id = $1 AND operator_id = $2`,
-    [input.driver_id, scopedOperatorId],
-  );
+  // Verify driver exists and is active.
+  // Platform-wide users can dispatch independent drivers (operator_id=null) to any booking.
+  // Operator staff can only dispatch drivers belonging to their own operator.
+  const { rows: driverRows } = isPlatformWide(user.role)
+    ? await pool.query(
+        `SELECT id, availability_status, is_active, operator_id FROM drivers WHERE id = $1`,
+        [input.driver_id],
+      )
+    : await pool.query(
+        `SELECT id, availability_status, is_active, operator_id FROM drivers
+         WHERE id = $1 AND operator_id = $2`,
+        [input.driver_id, scopedOperatorId],
+      );
   const driver = driverRows[0];
   if (!driver) throw AppError.notFound('Driver');
   if (!driver.is_active) throw AppError.unprocessable('Driver is inactive', 'DRIVER_INACTIVE');
 
-  // Verify vehicle belongs to the booking's operator
-  const { rows: vehicleRows } = await pool.query(
-    `SELECT id, is_active, operator_id FROM vehicles
-     WHERE id = $1 AND operator_id = $2`,
-    [input.vehicle_id, scopedOperatorId],
-  );
+  // Verify vehicle belongs to the booking's operator.
+  // Platform-wide users can assign any active vehicle.
+  const { rows: vehicleRows } = isPlatformWide(user.role)
+    ? await pool.query(
+        `SELECT id, is_active, operator_id FROM vehicles WHERE id = $1`,
+        [input.vehicle_id],
+      )
+    : await pool.query(
+        `SELECT id, is_active, operator_id FROM vehicles
+         WHERE id = $1 AND operator_id = $2`,
+        [input.vehicle_id, scopedOperatorId],
+      );
   const vehicle = vehicleRows[0];
   if (!vehicle) throw AppError.notFound('Vehicle');
   if (!vehicle.is_active) throw AppError.unprocessable('Vehicle is inactive', 'VEHICLE_INACTIVE');
