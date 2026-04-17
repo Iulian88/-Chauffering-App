@@ -70,27 +70,47 @@ export async function createTrip(input: CreateTripInput, user: AuthUser): Promis
   const booking = await findBookingByIdGlobal(input.booking_id);
   if (!booking) throw AppError.notFound('Booking');
 
-  // Booking must have an assigned operator before it can be dispatched
-  if (!booking.operator_id) {
+  // Operator staff can only dispatch bookings assigned to their operator
+  if (!isPlatformWide(user.role)) {
+    if (!user.operator_id) throw AppError.forbidden('No operator scope');
+    if (!booking.operator_id) {
+      throw AppError.unprocessable(
+        'Booking must be assigned to an operator before dispatching',
+        'OPERATOR_NOT_ASSIGNED',
+      );
+    }
+    if (booking.operator_id !== user.operator_id) {
+      throw AppError.forbidden('Booking is not assigned to your operator');
+    }
+  }
+
+  // Resolve scoped operator — platform-wide users can dispatch pool bookings
+  // by inheriting the operator from the chosen driver's record.
+  let scopedOperatorId = booking.operator_id as string | null;
+  if (!scopedOperatorId && isPlatformWide(user.role)) {
+    const { rows: driverOpRows } = await pool.query(
+      `SELECT operator_id FROM drivers WHERE id = $1`,
+      [input.driver_id],
+    );
+    scopedOperatorId = driverOpRows[0]?.operator_id ?? null;
+    if (!scopedOperatorId) {
+      throw AppError.unprocessable(
+        'Cannot dispatch an independent driver to an unassigned booking — assign an operator first',
+        'OPERATOR_NOT_RESOLVED',
+      );
+    }
+  }
+
+  if (!scopedOperatorId) {
     throw AppError.unprocessable(
       'Booking must be assigned to an operator before dispatching',
       'OPERATOR_NOT_ASSIGNED',
     );
   }
 
-  // Operator staff can only dispatch bookings assigned to their operator
-  if (!isPlatformWide(user.role)) {
-    if (!user.operator_id) throw AppError.forbidden('No operator scope');
-    if (booking.operator_id !== user.operator_id) {
-      throw AppError.forbidden('Booking is not assigned to your operator');
-    }
-  }
-
-  const scopedOperatorId = booking.operator_id;
-
-  if (booking.status !== 'confirmed') {
+  if (!['pending', 'confirmed'].includes(booking.status as string)) {
     throw AppError.unprocessable(
-      `Booking must be 'confirmed' before dispatching (current: '${booking.status}')`,
+      `Booking cannot be dispatched (current status: '${booking.status}')`,
       'BOOKING_NOT_DISPATCHABLE',
     );
   }
@@ -160,10 +180,10 @@ export async function createTrip(input: CreateTripInput, user: AuthUser): Promis
       [input.driver_id],
     );
 
-    // Advance booking to dispatched
+    // Advance booking to dispatched; also stamps operator_id on pool bookings
     await client.query(
-      `UPDATE bookings SET status = 'dispatched', dispatch_status = 'assigned', updated_at = now() WHERE id = $1`,
-      [input.booking_id],
+      `UPDATE bookings SET status = 'dispatched', dispatch_status = 'assigned', operator_id = COALESCE(operator_id, $2), updated_at = now() WHERE id = $1`,
+      [input.booking_id, scopedOperatorId],
     );
 
     await client.query('COMMIT');

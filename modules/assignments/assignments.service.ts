@@ -46,7 +46,7 @@ export async function addAssignment(input: {
   const vehicle = vehicleRows[0];
 
   if (!vehicle) throw AppError.notFound('Vehicle');
-  if ((vehicle.operator_id as string) !== operatorId) {
+  if (!isPlatformWide && (vehicle.operator_id as string) !== operatorId) {
     throw AppError.unprocessable(
       'Vehicle and driver must belong to the same operator',
       'OPERATOR_MISMATCH',
@@ -58,10 +58,14 @@ export async function addAssignment(input: {
     await demoteExistingPrimary(input.driver_id);
   }
 
+  // For independent drivers (operator_id = null) assigned by platform-wide users,
+  // inherit the vehicle's operator as the assignment owner.
+  const effectiveOperatorId = operatorId ?? (vehicle.operator_id as string | null);
+
   return createAssignment({
     driver_id: input.driver_id,
     vehicle_id: input.vehicle_id,
-    operator_id: operatorId,
+    operator_id: effectiveOperatorId,
     is_primary: input.is_primary,
   });
 }
