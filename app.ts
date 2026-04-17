@@ -4,7 +4,6 @@ import 'express-async-errors';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-import path from 'path';
 
 import { errorHandler } from './shared/errors/errorHandler';
 
@@ -23,12 +22,9 @@ import segmentRoutes from './modules/segments/segments.routes';
 const app = express();
 
 // ─── Security & parsing ───────────────────────────────────────────────────────
-app.use(helmet({ contentSecurityPolicy: false })); // CSP off to allow inline scripts in admin UI
+app.use(helmet());
 app.use(cors({ origin: process.env.CORS_ORIGIN ?? '*' }));
 app.use(express.json());
-
-// ─── Static admin UI ─────────────────────────────────────────────────────────
-app.use(express.static(path.join(__dirname, 'public')));
 
 // ─── Health check ─────────────────────────────────────────────────────────────
 app.get('/health', (_req, res) => {
