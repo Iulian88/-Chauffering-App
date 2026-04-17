@@ -61,6 +61,8 @@ router.get(
       assigned_driver_id: assignmentMap.get(v.id as string) ?? null,
     }));
 
+    console.log(`[vehicles GET] role=${role} operator_id=${operator_id ?? 'null'} rawVehicles=${rawVehicles?.length ?? 0} returned=${data.length}`);
+
     res.json({ data: data ?? [], count: data?.length ?? 0 });
   },
 );
