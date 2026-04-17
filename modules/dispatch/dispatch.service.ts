@@ -1,7 +1,7 @@
 import { Request } from 'express';
 import { Trip, AuthUser } from '../../shared/types/domain';
 import { AppError } from '../../shared/errors/AppError';
-import { getSupabaseForRequest } from '../../shared/db/supabase.client';
+import { pool } from '../../shared/db/pg.client';
 import { findBookingByIdGlobal } from '../bookings/bookings.repository';
 import { createTrip } from '../trips/trips.service';
 import { insertDispatchLog } from '../trips/trips.repository';
@@ -20,17 +20,16 @@ export async function manualAssign(
   return createTrip(input, user);
 }
 
-export async function unassignTrip(tripId: string, user: AuthUser, req: Request): Promise<void> {
-  const db = getSupabaseForRequest(req);
+export async function unassignTrip(tripId: string, user: AuthUser, _req: Request): Promise<void> {
   const isPlatformWide = user.role === 'platform_admin' || user.role === 'superadmin';
   if (!isPlatformWide && !user.operator_id) throw AppError.forbidden('No operator scope');
 
-  const tripQuery = db.from('trips').select('*').eq('id', tripId);
-  const { data: trip, error } = await (
-    isPlatformWide ? tripQuery : tripQuery.eq('operator_id', user.operator_id)
-  ).single();
+  const { rows: tripRows } = isPlatformWide
+    ? await pool.query(`SELECT * FROM trips WHERE id = $1`, [tripId])
+    : await pool.query(`SELECT * FROM trips WHERE id = $1 AND operator_id = $2`, [tripId, user.operator_id]);
 
-  if (error || !trip) throw AppError.notFound('Trip');
+  const trip = tripRows[0];
+  if (!trip) throw AppError.notFound('Trip');
 
   if (!isPlatformWide && trip.operator_id !== user.operator_id) {
     throw AppError.forbidden('Trip is not assigned to your operator');
@@ -43,9 +42,9 @@ export async function unassignTrip(tripId: string, user: AuthUser, req: Request)
     );
   }
 
-  await db.from('trips').update({ status: 'cancelled', updated_at: new Date().toISOString() }).eq('id', tripId);
-  await db.from('drivers').update({ availability_status: 'available', updated_at: new Date().toISOString() }).eq('id', trip.driver_id);
-  await db.from('bookings').update({ status: 'confirmed', updated_at: new Date().toISOString() }).eq('id', trip.booking_id);
+  await pool.query(`UPDATE trips SET status = 'cancelled', updated_at = now() WHERE id = $1`, [tripId]);
+  await pool.query(`UPDATE drivers SET availability_status = 'available', updated_at = now() WHERE id = $1`, [trip.driver_id]);
+  await pool.query(`UPDATE bookings SET status = 'confirmed', updated_at = now() WHERE id = $1`, [trip.booking_id]);
 
   await insertDispatchLog({
     trip_id: trip.id,
@@ -174,18 +173,12 @@ export async function getAvailableDriversForBooking(
     throw AppError.forbidden('Booking is not assigned to your operator');
   }
 
-  const { supabase: serviceClient } = await import('../../shared/db/supabase.client');
-
   // ── Stage 2: Fetch driver pool (no joins) ─────────────────────────────────
-  const { data: rawDrivers, error: driversError } = await serviceClient
-    .from('drivers')
-    .select('id, user_id, license_number, availability_status')
-    .eq('operator_id', operatorId)
-    .eq('is_active', true)
-    .eq('availability_status', 'available');
-
-  if (driversError) throw AppError.internal(driversError.message);
-
+  const { rows: rawDrivers } = await pool.query(
+    `SELECT id, user_id, license_number, availability_status FROM drivers
+     WHERE operator_id = $1 AND is_active = true AND availability_status = 'available'`,
+    [operatorId],
+  );
   console.log('[DISPATCH] Stage 2 — DRIVER_POOL_COUNT:', rawDrivers?.length ?? 0);
 
   if (!rawDrivers || rawDrivers.length === 0) {
@@ -198,13 +191,11 @@ export async function getAvailableDriversForBooking(
   // ── Stage 3: Attach primary assignments ───────────────────────────────────
   const driverIds = rawDrivers.map((d: Record<string, unknown>) => d.id as string);
 
-  const { data: assignments, error: assignError } = await serviceClient
-    .from('driver_vehicle_assignments')
-    .select('driver_id, vehicle_id, is_primary')
-    .in('driver_id', driverIds)
-    .eq('is_primary', true);
-
-  if (assignError) throw AppError.internal(assignError.message);
+  const { rows: assignments } = await pool.query(
+    `SELECT driver_id, vehicle_id, is_primary FROM driver_vehicle_assignments
+     WHERE driver_id = ANY($1) AND is_primary = true`,
+    [driverIds],
+  );
 
   const driversWithAssignmentCount = new Set((assignments ?? []).map((a: { driver_id: string }) => a.driver_id)).size;
   console.log('[DISPATCH] Stage 3 — DRIVERS_WITH_ASSIGNMENT:', driversWithAssignmentCount, '/', rawDrivers.length);
@@ -226,16 +217,16 @@ export async function getAvailableDriversForBooking(
     };
   }
 
-  const { data: vehicles, error: vehicleError } = await serviceClient
-    .from('vehicles')
-    .select('id, plate, make, model, year, segment, is_active')
-    .in('id', vehicleIds)
-    .eq('is_active', true);
-
-  if (vehicleError) throw AppError.internal(vehicleError.message);
+  const { rows: vehicles } = vehicleIds.length > 0
+    ? await pool.query(
+        `SELECT id, plate, make, model, year, segment, is_active FROM vehicles
+         WHERE id = ANY($1) AND is_active = true`,
+        [vehicleIds],
+      )
+    : { rows: [] };
 
   const vehicleMap = new Map(
-    (vehicles ?? []).map((v: { id: string; plate: string; make: string; model: string; year: number; segment: string; is_active: boolean }) => [v.id, v]),
+    vehicles.map((v: { id: string; plate: string; make: string; model: string; year: number; segment: string; is_active: boolean }) => [v.id, v]),
   );
 
   // Build driver → vehicle list (inner join logic in app code)
@@ -296,13 +287,12 @@ export async function getAvailableDriversForBooking(
   // ── Stage 6: Fetch user_profiles for matched drivers ─────────────────────
   const matchedUserIds = matched.map(d => d.user_id);
 
-  const { data: profiles } = await serviceClient
-    .from('user_profiles')
-    .select('id, full_name, phone')
-    .in('id', matchedUserIds);
+  const { rows: profiles } = matchedUserIds.length > 0
+    ? await pool.query(`SELECT id, full_name, phone FROM user_profiles WHERE id = ANY($1)`, [matchedUserIds])
+    : { rows: [] };
 
   const profileMap = new Map(
-    (profiles ?? []).map((p: { id: string; full_name: string; phone: string | null }) => [p.id, p]),
+    profiles.map((p: { id: string; full_name: string; phone: string | null }) => [p.id, p]),
   );
 
   const result = matched.map(d => ({
@@ -342,64 +332,56 @@ export interface DispatchAuditReport {
 }
 
 export async function auditDispatchData(): Promise<DispatchAuditReport> {
-  const { supabase: serviceClient } = await import('../../shared/db/supabase.client');
-
   // Drivers with no primary assignment
-  const { data: allDrivers } = await serviceClient
-    .from('drivers')
-    .select('id, operator_id')
-    .eq('is_active', true);
+  const { rows: allDrivers } = await pool.query(
+    `SELECT id, operator_id FROM drivers WHERE is_active = true`,
+  );
 
-  const { data: primaryAssignments } = await serviceClient
-    .from('driver_vehicle_assignments')
-    .select('driver_id, vehicle_id')
-    .eq('is_primary', true);
+  const { rows: primaryAssignments } = await pool.query(
+    `SELECT driver_id, vehicle_id FROM driver_vehicle_assignments WHERE is_primary = true`,
+  );
 
-  const assignedDriverIds = new Set((primaryAssignments ?? []).map((a: { driver_id: string }) => a.driver_id));
+  const assignedDriverIds = new Set(primaryAssignments.map((a: { driver_id: string }) => a.driver_id));
 
-  const driversWithoutAssignment = (allDrivers ?? []).filter(
+  const driversWithoutAssignment = allDrivers.filter(
     (d: { id: string; operator_id: string }) => !assignedDriverIds.has(d.id),
   ) as { id: string; operator_id: string }[];
 
   // Assignments pointing to a non-existent or inactive vehicle
-  const assignedVehicleIds = (primaryAssignments ?? []).map((a: { vehicle_id: string }) => a.vehicle_id);
+  const assignedVehicleIds = primaryAssignments.map((a: { vehicle_id: string }) => a.vehicle_id);
 
-  const { data: existingVehicles } = await serviceClient
-    .from('vehicles')
-    .select('id')
-    .in('id', assignedVehicleIds.length > 0 ? assignedVehicleIds : ['00000000-0000-0000-0000-000000000000']);
+  const { rows: existingVehicles } = assignedVehicleIds.length > 0
+    ? await pool.query(`SELECT id FROM vehicles WHERE id = ANY($1)`, [assignedVehicleIds])
+    : { rows: [] };
 
-  const existingVehicleIds = new Set((existingVehicles ?? []).map((v: { id: string }) => v.id));
+  const existingVehicleIds = new Set(existingVehicles.map((v: { id: string }) => v.id));
 
-  const assignmentsWithoutVehicle = (primaryAssignments ?? []).filter(
+  const assignmentsWithoutVehicle = primaryAssignments.filter(
     (a: { vehicle_id: string }) => !existingVehicleIds.has(a.vehicle_id),
   ) as { driver_id: string; vehicle_id: string }[];
 
   // Vehicles with no segment
-  const { data: vehiclesNoSegment } = await serviceClient
-    .from('vehicles')
-    .select('id, plate')
-    .is('segment', null)
-    .eq('is_active', true);
-
-  // Operators with no active+available drivers
-  const { data: allOperators } = await serviceClient
-    .from('operators')
-    .select('id, name')
-    .eq('is_active', true);
-
-  const operatorIdsWithDrivers = new Set(
-    (allDrivers ?? []).map((d: { operator_id: string }) => d.operator_id),
+  const { rows: vehiclesNoSegment } = await pool.query(
+    `SELECT id, plate FROM vehicles WHERE segment IS NULL AND is_active = true`,
   );
 
-  const operatorsWithoutDrivers = (allOperators ?? []).filter(
+  // Operators with no active drivers
+  const { rows: allOperators } = await pool.query(
+    `SELECT id, name FROM operators WHERE is_active = true`,
+  );
+
+  const operatorIdsWithDrivers = new Set(
+    allDrivers.map((d: { operator_id: string }) => d.operator_id),
+  );
+
+  const operatorsWithoutDrivers = allOperators.filter(
     (o: { id: string }) => !operatorIdsWithDrivers.has(o.id),
   ) as { id: string; name: string }[];
 
   return {
     driversWithoutAssignment,
     assignmentsWithoutVehicle,
-    vehiclesWithoutSegment: (vehiclesNoSegment ?? []) as { id: string; plate: string }[],
+    vehiclesWithoutSegment: vehiclesNoSegment as { id: string; plate: string }[],
     operatorsWithoutDrivers,
   };
 }
@@ -418,16 +400,13 @@ export interface OperatorHealth {
 const ALL_SEGMENTS = Object.keys(SEGMENT_PRIORITY);
 
 export async function checkOperatorHealth(operatorId: string): Promise<OperatorHealth> {
-  const { supabase: serviceClient } = await import('../../shared/db/supabase.client');
-
   // Count active drivers
-  const { data: drivers } = await serviceClient
-    .from('drivers')
-    .select('id')
-    .eq('operator_id', operatorId)
-    .eq('is_active', true);
+  const { rows: drivers } = await pool.query(
+    `SELECT id FROM drivers WHERE operator_id = $1 AND is_active = true`,
+    [operatorId],
+  );
 
-  const driverCount = (drivers ?? []).length;
+  const driverCount = drivers.length;
   if (driverCount === 0) {
     return {
       operatorId,
@@ -440,15 +419,14 @@ export async function checkOperatorHealth(operatorId: string): Promise<OperatorH
   }
 
   // Find vehicles assigned to these drivers
-  const driverIds = (drivers ?? []).map((d: { id: string }) => d.id);
+  const driverIds = drivers.map((d: { id: string }) => d.id);
 
-  const { data: assignments } = await serviceClient
-    .from('driver_vehicle_assignments')
-    .select('vehicle_id')
-    .in('driver_id', driverIds)
-    .eq('is_primary', true);
+  const { rows: assignments } = await pool.query(
+    `SELECT vehicle_id FROM driver_vehicle_assignments WHERE driver_id = ANY($1) AND is_primary = true`,
+    [driverIds],
+  );
 
-  const vehicleIds = (assignments ?? []).map((a: { vehicle_id: string }) => a.vehicle_id);
+  const vehicleIds = assignments.map((a: { vehicle_id: string }) => a.vehicle_id);
 
   if (vehicleIds.length === 0) {
     return {
@@ -461,15 +439,13 @@ export async function checkOperatorHealth(operatorId: string): Promise<OperatorH
     };
   }
 
-  const { data: vehicles } = await serviceClient
-    .from('vehicles')
-    .select('segment')
-    .in('id', vehicleIds)
-    .eq('is_active', true)
-    .not('segment', 'is', null);
+  const { rows: vehicles } = await pool.query(
+    `SELECT segment FROM vehicles WHERE id = ANY($1) AND is_active = true AND segment IS NOT NULL`,
+    [vehicleIds],
+  );
 
-  const vehicleCount = (vehicles ?? []).length;
-  const vehicleSegments = new Set((vehicles ?? []).map((v: { segment: string }) => v.segment));
+  const vehicleCount = vehicles.length;
+  const vehicleSegments = new Set(vehicles.map((v: { segment: string }) => v.segment));
 
   // A segment is "covered" if there is an exact match OR a vehicle in a valid fallback tier
   const segmentsCovered: string[] = [];
@@ -503,13 +479,8 @@ export async function insertDispatchFailure(
   reason: string,
   meta: Record<string, unknown> | null,
 ): Promise<void> {
-  const { supabase: svc } = await import('../../shared/db/supabase.client');
-  const { error } = await svc
-    .from('dispatch_failures')
-    .insert({ booking_id: bookingId, reason, meta });
-  if (error) {
-    console.error('[DISPATCH] Could not write dispatch_failure record:', error.message);
-  }
+  // dispatch_failures table does not exist on Railway — silently no-op
+  console.warn('[DISPATCH] insertDispatchFailure skipped (table not provisioned):', bookingId, reason, meta);
 }
 
 // ─── Auto Dispatch ────────────────────────────────────────────────────────────
@@ -530,8 +501,6 @@ const SYSTEM_USER: AuthUser = {
 export async function autoDispatch(
   bookingId: string,
 ): Promise<{ trip: Trip; meta: DispatchMeta }> {
-  const { supabase: svc } = await import('../../shared/db/supabase.client');
-
   // Validate booking exists and is not already handled
   const booking = await findBookingByIdGlobal(bookingId);
   if (!booking) throw AppError.notFound('Booking');
@@ -553,14 +522,14 @@ export async function autoDispatch(
   } catch (err) {
     const reason = err instanceof AppError ? err.message : 'DISPATCH_QUERY_ERROR';
     await insertDispatchFailure(bookingId, reason, null);
-    await svc.from('bookings').update({ dispatch_status: 'failed', updated_at: new Date().toISOString() }).eq('id', bookingId);
+    await pool.query(`UPDATE bookings SET dispatch_status = 'failed', updated_at = now() WHERE id = $1`, [bookingId]);
     throw err;
   }
 
   if (result.data.length === 0) {
     const reason = result.meta.reasonIfEmpty ?? 'NO_DRIVERS_AVAILABLE';
     await insertDispatchFailure(bookingId, reason, result.meta as unknown as Record<string, unknown>);
-    await svc.from('bookings').update({ dispatch_status: 'failed', updated_at: new Date().toISOString() }).eq('id', bookingId);
+    await pool.query(`UPDATE bookings SET dispatch_status = 'failed', updated_at = now() WHERE id = $1`, [bookingId]);
     throw AppError.unprocessable(reason, 'AUTO_DISPATCH_FAILED');
   }
 
@@ -573,7 +542,7 @@ export async function autoDispatch(
   if (!vehicleId) {
     const reason = 'CHOSEN_DRIVER_HAS_NO_VEHICLE';
     await insertDispatchFailure(bookingId, reason, null);
-    await svc.from('bookings').update({ dispatch_status: 'failed', updated_at: new Date().toISOString() }).eq('id', bookingId);
+    await pool.query(`UPDATE bookings SET dispatch_status = 'failed', updated_at = now() WHERE id = $1`, [bookingId]);
     throw AppError.unprocessable('Chosen driver has no vehicle', reason);
   }
 
@@ -583,7 +552,6 @@ export async function autoDispatch(
       { booking_id: bookingId, driver_id: chosen.id, vehicle_id: vehicleId },
       SYSTEM_USER,
     );
-    // dispatch_status = 'assigned' is set atomically by assign_driver_atomic in the DB
     console.log('[AUTO_DISPATCH] Success — booking:', bookingId, '| driver:', chosen.id, '| matchType:', result.meta.matchType);
     return { trip, meta: result.meta };
   } catch (err) {
@@ -591,7 +559,7 @@ export async function autoDispatch(
     await insertDispatchFailure(bookingId, code, { driver_id: chosen.id });
     // Only mark failed if we didn't just lose a race (DRIVER_ALREADY_ASSIGNED is retriable)
     if (code !== 'DRIVER_ALREADY_ASSIGNED') {
-      await svc.from('bookings').update({ dispatch_status: 'failed', updated_at: new Date().toISOString() }).eq('id', bookingId);
+      await pool.query(`UPDATE bookings SET dispatch_status = 'failed', updated_at = now() WHERE id = $1`, [bookingId]);
     } else {
       // Reset to 'ready' so the caller can retry with a different driver
       await setDispatchStatus(bookingId, 'ready');

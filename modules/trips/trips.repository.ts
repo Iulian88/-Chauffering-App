@@ -1,88 +1,63 @@
-import { supabase } from '../../shared/db/supabase.client';
+import { pool } from '../../shared/db/pg.client';
 import { Trip, TripStatus } from '../../shared/types/domain';
 import { AppError } from '../../shared/errors/AppError';
 
 export async function findTripsByOperator(operator_id: string): Promise<Trip[]> {
-  const { data, error } = await supabase
-    .from('trips')
-    .select('*')
-    .eq('operator_id', operator_id)
-    .order('assigned_at', { ascending: false });
-
-  if (error) throw AppError.internal(error.message);
-  return (data ?? []) as Trip[];
+  const { rows } = await pool.query(
+    `SELECT * FROM trips WHERE operator_id = $1 ORDER BY assigned_at DESC`,
+    [operator_id],
+  );
+  return rows as Trip[];
 }
 
 // Platform-wide list — no operator filter (platform_admin / superadmin only)
 export async function findAllTrips(): Promise<Trip[]> {
-  const { data, error } = await supabase
-    .from('trips')
-    .select('*')
-    .order('assigned_at', { ascending: false });
-
-  if (error) throw AppError.internal(error.message);
-  return (data ?? []) as Trip[];
+  const { rows } = await pool.query(`SELECT * FROM trips ORDER BY assigned_at DESC`);
+  return rows as Trip[];
 }
 
 export async function insertTrip(
   data: Omit<Trip, 'id' | 'created_at' | 'updated_at' | 'assigned_at' | 'accepted_at' | 'en_route_at' | 'arrived_at' | 'completed_at' | 'refused_at' | 'refusal_reason'>,
 ): Promise<Trip> {
-  const { data: trip, error } = await supabase
-    .from('trips')
-    .insert({ ...data, assigned_at: new Date().toISOString() })
-    .select()
-    .single();
-
-  if (error) throw AppError.internal(`Failed to create trip: ${error.message}`);
-  return trip as Trip;
+  const cols = [...Object.keys(data), 'assigned_at'];
+  const vals = [...Object.values(data), new Date().toISOString()];
+  const placeholders = cols.map((_, i) => `$${i + 1}`).join(', ');
+  const { rows } = await pool.query(
+    `INSERT INTO trips (${cols.join(', ')}) VALUES (${placeholders}) RETURNING *`,
+    vals,
+  );
+  if (!rows[0]) throw AppError.internal('Failed to create trip');
+  return rows[0] as Trip;
 }
 
 export async function findTripById(id: string, operator_id: string): Promise<Trip | null> {
-  const { data, error } = await supabase
-    .from('trips')
-    .select('*')
-    .eq('id', id)
-    .eq('operator_id', operator_id)
-    .maybeSingle();
-
-  if (error) throw AppError.internal(error.message);
-  return data as Trip | null;
+  const { rows } = await pool.query(
+    `SELECT * FROM trips WHERE id = $1 AND operator_id = $2`,
+    [id, operator_id],
+  );
+  return rows[0] ?? null;
 }
 
 // Platform-wide lookup — no operator filter (platform_admin / superadmin only)
 export async function findTripByIdGlobal(id: string): Promise<Trip | null> {
-  const { data, error } = await supabase
-    .from('trips')
-    .select('*')
-    .eq('id', id)
-    .maybeSingle();
-
-  if (error) throw AppError.internal(error.message);
-  return data as Trip | null;
+  const { rows } = await pool.query(`SELECT * FROM trips WHERE id = $1`, [id]);
+  return rows[0] ?? null;
 }
 
 export async function findTripByIdForDriver(id: string, driver_id: string): Promise<Trip | null> {
-  const { data, error } = await supabase
-    .from('trips')
-    .select('*')
-    .eq('id', id)
-    .eq('driver_id', driver_id)
-    .maybeSingle();
-
-  if (error) throw AppError.internal(error.message);
-  return data as Trip | null;
+  const { rows } = await pool.query(
+    `SELECT * FROM trips WHERE id = $1 AND driver_id = $2`,
+    [id, driver_id],
+  );
+  return rows[0] ?? null;
 }
 
 export async function findActiveTripForBooking(booking_id: string): Promise<Trip | null> {
-  const { data, error } = await supabase
-    .from('trips')
-    .select('*')
-    .eq('booking_id', booking_id)
-    .not('status', 'in', '("refused","cancelled")')
-    .maybeSingle();
-
-  if (error) throw AppError.internal(error.message);
-  return data as Trip | null;
+  const { rows } = await pool.query(
+    `SELECT * FROM trips WHERE booking_id = $1 AND status NOT IN ('refused', 'cancelled') LIMIT 1`,
+    [booking_id],
+  );
+  return rows[0] ?? null;
 }
 
 export async function updateTripStatus(
@@ -90,15 +65,15 @@ export async function updateTripStatus(
   status: TripStatus,
   extra?: Record<string, unknown>,
 ): Promise<Trip> {
-  const { data, error } = await supabase
-    .from('trips')
-    .update({ status, updated_at: new Date().toISOString(), ...extra })
-    .eq('id', id)
-    .select()
-    .single();
-
-  if (error) throw AppError.internal(`Failed to update trip: ${error.message}`);
-  return data as Trip;
+  const extra_cols = extra ? Object.keys(extra) : [];
+  const extra_vals = extra ? Object.values(extra) : [];
+  const setClauses = [`status = $1`, `updated_at = now()`, ...extra_cols.map((c, i) => `${c} = $${i + 3}`)];
+  const { rows } = await pool.query(
+    `UPDATE trips SET ${setClauses.join(', ')} WHERE id = $2 RETURNING *`,
+    [status, id, ...extra_vals],
+  );
+  if (!rows[0]) throw AppError.internal('Failed to update trip');
+  return rows[0] as Trip;
 }
 
 export async function insertDispatchLog(entry: {
@@ -110,7 +85,14 @@ export async function insertDispatchLog(entry: {
   outcome?: string | null;
   note?: string | null;
 }): Promise<void> {
-  const { error } = await supabase.from('dispatch_log').insert(entry);
-  if (error) console.error('[dispatch_log insert failed]', error.message);
-  // non-fatal — audit log failure should not break the main flow
+  try {
+    await pool.query(
+      `INSERT INTO dispatch_log (trip_id, booking_id, driver_id, assigned_by, action, outcome, note)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [entry.trip_id, entry.booking_id, entry.driver_id, entry.assigned_by, entry.action, entry.outcome ?? null, entry.note ?? null],
+    );
+  } catch (err) {
+    console.error('[dispatch_log insert failed]', (err as Error).message);
+    // non-fatal — audit log failure should not break the main flow
+  }
 }

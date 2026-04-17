@@ -8,7 +8,7 @@
  * the SDK if FIREBASE_SERVICE_ACCOUNT is not configured.
  */
 
-import { supabase } from './shared/db/supabase.client';
+import { pool } from './shared/db/pg.client';
 
 export type NotificationChannel = 'push' | 'sms' | 'email';
 
@@ -40,17 +40,21 @@ export async function sendNotification(input: SendNotificationInput): Promise<vo
 
   // Always log — non-fatal if insert fails
   try {
-    await supabase.from('notifications_log').insert({
-      user_id: input.user_id,
-      operator_id: input.operator_id,
-      channel: input.channel,
-      template_key: input.template_key,
-      title: input.title,
-      body: input.body,
-      payload: input.payload ?? null,
-      status,
-      sent_at,
-    });
+    await pool.query(
+      `INSERT INTO notifications_log (user_id, operator_id, channel, template_key, title, body, payload, status, sent_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [
+        input.user_id,
+        input.operator_id,
+        input.channel,
+        input.template_key,
+        input.title,
+        input.body,
+        input.payload ?? null,
+        status,
+        sent_at,
+      ],
+    );
   } catch (logErr) {
     console.error('[Notifications] log insert failed:', logErr);
   }

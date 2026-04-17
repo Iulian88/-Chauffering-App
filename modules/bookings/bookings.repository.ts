@@ -1,58 +1,43 @@
-import { SupabaseClient } from '@supabase/supabase-js';
-import { supabase } from '../../shared/db/supabase.client';
+import { pool } from '../../shared/db/pg.client';
 import { Booking, BookingStatus, DispatchStatus } from '../../shared/types/domain';
 import { AppError } from '../../shared/errors/AppError';
 
 export async function createBooking(
   data: Omit<Booking, 'id' | 'created_at' | 'updated_at' | 'price_final' | 'cancelled_by' | 'cancelled_at' | 'cancellation_reason'>,
 ): Promise<Booking> {
-  const { data: booking, error } = await supabase
-    .from('bookings')
-    .insert(data)
-    .select()
-    .single();
-
-  if (error) throw AppError.internal(`Failed to create booking: ${error.message}`);
-  return booking as Booking;
+  const cols = Object.keys(data);
+  const vals = Object.values(data);
+  const placeholders = cols.map((_, i) => `$${i + 1}`).join(', ');
+  const { rows } = await pool.query(
+    `INSERT INTO bookings (${cols.join(', ')}) VALUES (${placeholders}) RETURNING *`,
+    vals,
+  );
+  if (!rows[0]) throw AppError.internal('Failed to create booking');
+  return rows[0] as Booking;
 }
 
 export async function findBookingById(
   id: string,
   operator_id: string,
-  db: SupabaseClient = supabase,
 ): Promise<Booking | null> {
-  const { data, error } = await db
-    .from('bookings')
-    .select('*')
-    .eq('id', id)
-    .eq('operator_id', operator_id)
-    .maybeSingle();
-
-  if (error) throw AppError.internal(error.message);
-  return data as Booking | null;
+  const { rows } = await pool.query(
+    `SELECT * FROM bookings WHERE id = $1 AND operator_id = $2`,
+    [id, operator_id],
+  );
+  return rows[0] ?? null;
 }
 
 export async function findBookingByIdForClient(id: string, client_user_id: string): Promise<Booking | null> {
-  const { data, error } = await supabase
-    .from('bookings')
-    .select('*')
-    .eq('id', id)
-    .eq('client_user_id', client_user_id)
-    .maybeSingle();
-
-  if (error) throw AppError.internal(error.message);
-  return data as Booking | null;
+  const { rows } = await pool.query(
+    `SELECT * FROM bookings WHERE id = $1 AND client_user_id = $2`,
+    [id, client_user_id],
+  );
+  return rows[0] ?? null;
 }
 
 export async function findBookingByIdGlobal(id: string): Promise<Booking | null> {
-  const { data, error } = await supabase
-    .from('bookings')
-    .select('*')
-    .eq('id', id)
-    .maybeSingle();
-
-  if (error) throw AppError.internal(error.message);
-  return data as Booking | null;
+  const { rows } = await pool.query(`SELECT * FROM bookings WHERE id = $1`, [id]);
+  return rows[0] ?? null;
 }
 
 export interface ListBookingsFilter {
@@ -67,29 +52,31 @@ export interface ListBookingsFilter {
 }
 
 export async function listBookings(filter: ListBookingsFilter): Promise<Booking[]> {
-  let query = supabase
-    .from('bookings')
-    .select('*')
-    .order('scheduled_at', { ascending: true });
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+  let idx = 1;
 
   // Pool mode: only unassigned bookings
   if (filter.pool) {
-    query = query.is('operator_id', null);
+    conditions.push(`operator_id IS NULL`);
   } else if (filter.operator_id) {
-    // Scoped to a specific operator
-    query = query.eq('operator_id', filter.operator_id);
+    conditions.push(`operator_id = $${idx++}`);
+    params.push(filter.operator_id);
   }
 
-  if (filter.status) query = query.eq('status', filter.status);
-  if (filter.segment) query = query.eq('segment', filter.segment);
-  if (filter.from) query = query.gte('scheduled_at', filter.from);
-  if (filter.to) query = query.lte('scheduled_at', filter.to);
-  if (filter.limit) query = query.limit(filter.limit);
-  if (filter.offset) query = query.range(filter.offset, filter.offset + (filter.limit ?? 50) - 1);
+  if (filter.status) { conditions.push(`status = $${idx++}`); params.push(filter.status); }
+  if (filter.segment) { conditions.push(`segment = $${idx++}`); params.push(filter.segment); }
+  if (filter.from) { conditions.push(`scheduled_at >= $${idx++}`); params.push(filter.from); }
+  if (filter.to) { conditions.push(`scheduled_at <= $${idx++}`); params.push(filter.to); }
 
-  const { data, error } = await query;
-  if (error) throw AppError.internal(error.message);
-  return (data ?? []) as Booking[];
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+  let sql = `SELECT * FROM bookings ${where} ORDER BY scheduled_at ASC`;
+  if (filter.limit) { sql += ` LIMIT $${idx++}`; params.push(filter.limit); }
+  if (filter.offset) { sql += ` OFFSET $${idx++}`; params.push(filter.offset); }
+
+  const { rows } = await pool.query(sql, params);
+  return rows as Booking[];
 }
 
 export async function updateBookingStatus(
@@ -98,16 +85,15 @@ export async function updateBookingStatus(
   status: BookingStatus,
   extra?: Partial<Booking>,
 ): Promise<Booking> {
-  const { data, error } = await supabase
-    .from('bookings')
-    .update({ status, updated_at: new Date().toISOString(), ...extra })
-    .eq('id', id)
-    .eq('operator_id', operator_id)
-    .select()
-    .single();
-
-  if (error) throw AppError.internal(`Failed to update booking: ${error.message}`);
-  return data as Booking;
+  const extra_cols = extra ? Object.keys(extra) : [];
+  const extra_vals = extra ? Object.values(extra) : [];
+  const setClauses = [`status = $1`, `updated_at = now()`, ...extra_cols.map((c, i) => `${c} = $${i + 3}`)];
+  const { rows } = await pool.query(
+    `UPDATE bookings SET ${setClauses.join(', ')} WHERE id = $2 AND operator_id = $${extra_cols.length + 3} RETURNING *`,
+    [status, id, ...extra_vals, operator_id],
+  );
+  if (!rows[0]) throw AppError.internal('Failed to update booking');
+  return rows[0] as Booking;
 }
 
 // Global update — no operator_id filter (used for pool bookings or platform_admin actions)
@@ -116,30 +102,26 @@ export async function updateBookingStatusGlobal(
   status: BookingStatus,
   extra?: Partial<Booking>,
 ): Promise<Booking> {
-  const { data, error } = await supabase
-    .from('bookings')
-    .update({ status, updated_at: new Date().toISOString(), ...extra })
-    .eq('id', id)
-    .select()
-    .single();
-
-  if (error) throw AppError.internal(`Failed to update booking: ${error.message}`);
-  return data as Booking;
+  const extra_cols = extra ? Object.keys(extra) : [];
+  const extra_vals = extra ? Object.values(extra) : [];
+  const setClauses = [`status = $1`, `updated_at = now()`, ...extra_cols.map((c, i) => `${c} = $${i + 3}`)];
+  const { rows } = await pool.query(
+    `UPDATE bookings SET ${setClauses.join(', ')} WHERE id = $2 RETURNING *`,
+    [status, id, ...extra_vals],
+  );
+  if (!rows[0]) throw AppError.internal('Failed to update booking');
+  return rows[0] as Booking;
 }
 
 // Assign an operator to a pool booking — only succeeds if currently unassigned
 export async function assignOperator(id: string, operator_id: string): Promise<Booking> {
-  const { data, error } = await supabase
-    .from('bookings')
-    .update({ operator_id, updated_at: new Date().toISOString() })
-    .eq('id', id)
-    .is('operator_id', null)
-    .select()
-    .single();
-
-  if (error) throw AppError.internal(`Failed to assign operator: ${error.message}`);
-  if (!data) throw AppError.conflict('Booking already has an operator assigned', 'ALREADY_ASSIGNED');
-  return data as Booking;
+  const { rows } = await pool.query(
+    `UPDATE bookings SET operator_id = $1, updated_at = now()
+     WHERE id = $2 AND operator_id IS NULL RETURNING *`,
+    [operator_id, id],
+  );
+  if (!rows[0]) throw AppError.conflict('Booking already has an operator assigned', 'ALREADY_ASSIGNED');
+  return rows[0] as Booking;
 }
 
 // Update dispatch_status only — does not touch booking.status
@@ -147,9 +129,8 @@ export async function setDispatchStatus(
   bookingId: string,
   status: DispatchStatus,
 ): Promise<void> {
-  const { error } = await supabase
-    .from('bookings')
-    .update({ dispatch_status: status, updated_at: new Date().toISOString() })
-    .eq('id', bookingId);
-  if (error) throw AppError.internal(`Failed to update dispatch_status: ${error.message}`);
+  await pool.query(
+    `UPDATE bookings SET dispatch_status = $1, updated_at = now() WHERE id = $2`,
+    [status, bookingId],
+  );
 }

@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
-import { supabaseAuth, supabase } from '../../shared/db/supabase.client';
+import { supabaseAuth } from '../../shared/db/supabase.client';
+import { pool } from '../../shared/db/pg.client';
 import { AppError } from '../../shared/errors/AppError';
 import { requireAuth } from '../../shared/middleware/auth.middleware';
 
@@ -21,11 +22,11 @@ router.post('/login', async (req: Request, res: Response) => {
   }
 
   // Enrich with profile
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('id, full_name, role, operator_id, is_active')
-    .eq('id', data.user.id)
-    .single();
+  const { rows } = await pool.query(
+    `SELECT id, full_name, role, operator_id, is_active FROM user_profiles WHERE id = $1`,
+    [data.user.id],
+  );
+  const profile = rows[0];
 
   if (!profile?.is_active) {
     throw AppError.forbidden('Account is deactivated');

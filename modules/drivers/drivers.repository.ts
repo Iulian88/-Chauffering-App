@@ -1,50 +1,46 @@
-import { Request } from 'express';
-import { supabase, getSupabaseForRequest } from '../../shared/db/supabase.client';
 import { Driver, DriverAvailabilityStatus } from '../../shared/types/domain';
 import { AppError } from '../../shared/errors/AppError';
+import { pool } from '../../shared/db/pg.client';
 
 export async function findDriversByOperator(operator_id: string): Promise<Driver[]> {
   // 1. Fetch drivers
-  const { data: drivers, error } = await supabase
-    .from('drivers')
-    .select('*')
-    .eq('operator_id', operator_id)
-    .eq('is_active', true)
-    .order('created_at', { ascending: false });
-
-  if (error) throw AppError.internal(error.message);
-  if (!drivers || drivers.length === 0) return [];
+  const { rows: drivers } = await pool.query(
+    `SELECT * FROM drivers WHERE operator_id = $1 AND is_active = true ORDER BY created_at DESC`,
+    [operator_id],
+  );
+  if (drivers.length === 0) return [];
 
   const driverIds = drivers.map((d: Record<string, unknown>) => d.id as string);
   const userIds = drivers.map((d: Record<string, unknown>) => d.user_id as string);
 
   // 2. Fetch user_profiles and primary assignments in parallel
-  const [{ data: profiles }, { data: assignments }] = await Promise.all([
-    supabase.from('user_profiles').select('id, full_name, phone').in('id', userIds),
-    supabase
-      .from('driver_vehicle_assignments')
-      .select('driver_id, vehicle_id')
-      .in('driver_id', driverIds)
-      .eq('is_primary', true),
+  const [profilesRes, assignmentsRes] = await Promise.all([
+    pool.query(`SELECT id, full_name, phone FROM user_profiles WHERE id = ANY($1)`, [userIds]),
+    pool.query(
+      `SELECT driver_id, vehicle_id FROM driver_vehicle_assignments WHERE driver_id = ANY($1) AND is_primary = true`,
+      [driverIds],
+    ),
   ]);
+  const profiles = profilesRes.rows;
+  const assignments = assignmentsRes.rows;
 
   // 3. Fetch the vehicles referenced by those assignments
-  const vehicleIds = (assignments ?? []).map((a: { vehicle_id: string }) => a.vehicle_id);
-  const { data: vehicles } = vehicleIds.length > 0
-    ? await supabase
-        .from('vehicles')
-        .select('id, plate, make, model, segment, is_active, year, color')
-        .in('id', vehicleIds)
-    : { data: [] };
+  const vehicleIds = assignments.map((a: { vehicle_id: string }) => a.vehicle_id);
+  const vehicles = vehicleIds.length > 0
+    ? (await pool.query(
+        `SELECT id, plate, make, model, segment, is_active, year, color FROM vehicles WHERE id = ANY($1)`,
+        [vehicleIds],
+      )).rows
+    : [];
 
   const profileMap = new Map(
-    (profiles ?? []).map((p: { id: string; full_name: string; phone: string | null }) => [p.id, p]),
+    profiles.map((p: { id: string; full_name: string; phone: string | null }) => [p.id, p]),
   );
   const assignmentMap = new Map(
-    (assignments ?? []).map((a: { driver_id: string; vehicle_id: string }) => [a.driver_id, a.vehicle_id]),
+    assignments.map((a: { driver_id: string; vehicle_id: string }) => [a.driver_id, a.vehicle_id]),
   );
   const vehicleMap = new Map(
-    (vehicles ?? []).map((v: { id: string }) => [v.id, v]),
+    vehicles.map((v: { id: string }) => [v.id, v]),
   );
 
   // 4. Merge
@@ -60,68 +56,55 @@ export async function findDriversByOperator(operator_id: string): Promise<Driver
 }
 
 export async function findDriverById(id: string, operator_id: string): Promise<Driver | null> {
-  const { data, error } = await supabase
-    .from('drivers')
-    .select('*')
-    .eq('id', id)
-    .eq('operator_id', operator_id)
-    .maybeSingle();
-
-  if (error) throw AppError.internal(error.message);
-  return data as Driver | null;
+  const { rows } = await pool.query(
+    `SELECT * FROM drivers WHERE id = $1 AND operator_id = $2`,
+    [id, operator_id],
+  );
+  return rows[0] ?? null;
 }
 
 // Platform-wide lookup — no operator filter (platform_admin / superadmin only)
 export async function findDriverByIdGlobal(id: string): Promise<Driver | null> {
-  const { data, error } = await supabase
-    .from('drivers')
-    .select('*')
-    .eq('id', id)
-    .maybeSingle();
-
-  if (error) throw AppError.internal(error.message);
-  return data as Driver | null;
+  const { rows } = await pool.query(`SELECT * FROM drivers WHERE id = $1`, [id]);
+  return rows[0] ?? null;
 }
 
 // Platform-wide list — no operator filter (platform_admin / superadmin only)
 export async function findAllDrivers(): Promise<Driver[]> {
-  const { data: drivers, error } = await supabase
-    .from('drivers')
-    .select('*')
-    .eq('is_active', true)
-    .order('created_at', { ascending: false });
-
-  if (error) throw AppError.internal(error.message);
-  if (!drivers || drivers.length === 0) return [];
+  const { rows: drivers } = await pool.query(
+    `SELECT * FROM drivers WHERE is_active = true ORDER BY created_at DESC`,
+  );
+  if (drivers.length === 0) return [];
 
   const driverIds = drivers.map((d: Record<string, unknown>) => d.id as string);
   const userIds = drivers.map((d: Record<string, unknown>) => d.user_id as string);
 
-  const [{ data: profiles }, { data: assignments }] = await Promise.all([
-    supabase.from('user_profiles').select('id, full_name, phone').in('id', userIds),
-    supabase
-      .from('driver_vehicle_assignments')
-      .select('driver_id, vehicle_id')
-      .in('driver_id', driverIds)
-      .eq('is_primary', true),
+  const [profilesRes, assignmentsRes] = await Promise.all([
+    pool.query(`SELECT id, full_name, phone FROM user_profiles WHERE id = ANY($1)`, [userIds]),
+    pool.query(
+      `SELECT driver_id, vehicle_id FROM driver_vehicle_assignments WHERE driver_id = ANY($1) AND is_primary = true`,
+      [driverIds],
+    ),
   ]);
+  const profiles = profilesRes.rows;
+  const assignments = assignmentsRes.rows;
 
-  const vehicleIds = (assignments ?? []).map((a: { vehicle_id: string }) => a.vehicle_id);
-  const { data: vehicles } = vehicleIds.length > 0
-    ? await supabase
-        .from('vehicles')
-        .select('id, plate, make, model, segment, is_active, year, color')
-        .in('id', vehicleIds)
-    : { data: [] };
+  const vehicleIds = assignments.map((a: { vehicle_id: string }) => a.vehicle_id);
+  const vehicles = vehicleIds.length > 0
+    ? (await pool.query(
+        `SELECT id, plate, make, model, segment, is_active, year, color FROM vehicles WHERE id = ANY($1)`,
+        [vehicleIds],
+      )).rows
+    : [];
 
   const profileMap = new Map(
-    (profiles ?? []).map((p: { id: string; full_name: string; phone: string | null }) => [p.id, p]),
+    profiles.map((p: { id: string; full_name: string; phone: string | null }) => [p.id, p]),
   );
   const assignmentMap = new Map(
-    (assignments ?? []).map((a: { driver_id: string; vehicle_id: string }) => [a.driver_id, a.vehicle_id]),
+    assignments.map((a: { driver_id: string; vehicle_id: string }) => [a.driver_id, a.vehicle_id]),
   );
   const vehicleMap = new Map(
-    (vehicles ?? []).map((v: { id: string }) => [v.id, v]),
+    vehicles.map((v: { id: string }) => [v.id, v]),
   );
 
   return drivers.map((d: Record<string, unknown>) => {
@@ -136,64 +119,38 @@ export async function findAllDrivers(): Promise<Driver[]> {
 }
 
 export async function findAvailableDriversByOperator(
-  req: Request,
+  _req: unknown,
   operator_id: string,
   segment?: string,
 ): Promise<Driver[]> {
-  const db = getSupabaseForRequest(req);
-  // MIGRATED: using driver_vehicle_assignments instead of assigned_driver_id
   // Join path: drivers → driver_vehicle_assignments (is_primary=true) → vehicles (is_active=true)
   // Drivers with no primary vehicle assignment are intentionally excluded.
-  const { data, error } = await db
-    .from('drivers')
-    .select(`
-      *,
-      driver_vehicle_assignments!inner(
-        is_primary,
-        vehicles!inner(id, segment, is_active, plate, make, model)
-      )
-    `)
-    .eq('operator_id', operator_id)
-    .eq('availability_status', 'available')
-    .eq('is_active', true)
-    .eq('driver_vehicle_assignments.is_primary', true)
-    .eq('driver_vehicle_assignments.vehicles.is_active', true);
+  const segmentFilter = segment ? `AND v.segment = $3` : '';
+  const params: unknown[] = [operator_id];
+  if (segment) params.push(segment);
 
-  if (error) throw AppError.internal(error.message);
+  const { rows } = await pool.query(
+    `SELECT d.*, v.id AS v_id, v.segment AS v_segment, v.is_active AS v_is_active,
+            v.plate AS v_plate, v.make AS v_make, v.model AS v_model
+     FROM drivers d
+     JOIN driver_vehicle_assignments dva ON dva.driver_id = d.id AND dva.is_primary = true
+     JOIN vehicles v ON v.id = dva.vehicle_id AND v.is_active = true
+     WHERE d.operator_id = $1
+       AND d.availability_status = 'available'
+       AND d.is_active = true
+       ${segmentFilter}`,
+    params,
+  );
 
-  type RawDriver = Driver & {
-    driver_vehicle_assignments: {
-      is_primary: boolean;
-      vehicles: { id: string; segment: string; is_active: boolean; plate: string; make: string; model: string };
-    }[];
-  };
-
-  let drivers = (data ?? []) as unknown as RawDriver[];
-
-  if (segment) {
-    drivers = drivers.filter(d =>
-      (d.driver_vehicle_assignments ?? []).some(
-        a => a.vehicles.is_active && a.vehicles.segment === segment,
-      ),
-    );
-  }
-
-  // Normalise: expose vehicles[] on the driver object for callers that use it
-  return drivers.map(d => ({
+  return rows.map((d: Record<string, unknown>) => ({
     ...d,
-    vehicles: d.driver_vehicle_assignments.map(a => a.vehicles),
+    vehicles: [{ id: d.v_id, segment: d.v_segment, is_active: d.v_is_active, plate: d.v_plate, make: d.v_make, model: d.v_model }],
   })) as unknown as Driver[];
 }
 
 export async function findDriverByUserId(user_id: string): Promise<Driver | null> {
-  const { data, error } = await supabase
-    .from('drivers')
-    .select('*')
-    .eq('user_id', user_id)
-    .maybeSingle();
-
-  if (error) throw AppError.internal(error.message);
-  return data as Driver | null;
+  const { rows } = await pool.query(`SELECT * FROM drivers WHERE user_id = $1`, [user_id]);
+  return rows[0] ?? null;
 }
 
 // Used internally by trips service — no operator_id guard needed (called after auth)
@@ -201,12 +158,10 @@ export async function setDriverAvailability(
   driver_id: string,
   status: DriverAvailabilityStatus,
 ): Promise<void> {
-  const { error } = await supabase
-    .from('drivers')
-    .update({ availability_status: status, updated_at: new Date().toISOString() })
-    .eq('id', driver_id);
-
-  if (error) throw AppError.internal(`Failed to update driver availability: ${error.message}`);
+  await pool.query(
+    `UPDATE drivers SET availability_status = $1, updated_at = now() WHERE id = $2`,
+    [status, driver_id],
+  );
 }
 
 export async function updateDriverAvailability(
@@ -214,28 +169,22 @@ export async function updateDriverAvailability(
   operator_id: string,
   status: DriverAvailabilityStatus,
 ): Promise<Driver> {
-  const { data, error } = await supabase
-    .from('drivers')
-    .update({ availability_status: status, updated_at: new Date().toISOString() })
-    .eq('id', driver_id)
-    .eq('operator_id', operator_id)
-    .select()
-    .single();
-
-  if (error) throw AppError.internal(`Failed to update driver: ${error.message}`);
-  return data as Driver;
+  const { rows } = await pool.query(
+    `UPDATE drivers SET availability_status = $1, updated_at = now()
+     WHERE id = $2 AND operator_id = $3 RETURNING *`,
+    [status, driver_id, operator_id],
+  );
+  if (!rows[0]) throw AppError.internal('Failed to update driver');
+  return rows[0] as Driver;
 }
 
 // Guard helper: returns true if driver has any active trip (assigned or en_route)
 export async function hasActiveTrip(driver_id: string): Promise<boolean> {
-  const { count, error } = await supabase
-    .from('trips')
-    .select('id', { count: 'exact', head: true })
-    .eq('driver_id', driver_id)
-    .in('status', ['assigned', 'en_route']);
-
-  if (error) throw AppError.internal(error.message);
-  return (count ?? 0) > 0;
+  const { rows } = await pool.query(
+    `SELECT COUNT(*) AS count FROM trips WHERE driver_id = $1 AND status = ANY($2)`,
+    [driver_id, ['assigned', 'en_route']],
+  );
+  return parseInt(rows[0].count, 10) > 0;
 }
 
 // ─── Self-operator helpers ────────────────────────────────────────────────────
@@ -245,28 +194,18 @@ export async function hasActiveTrip(driver_id: string): Promise<boolean> {
  * does not yet exist. Used when a driver has no fleet operator assigned.
  */
 export async function findOrCreateSelfOperator(): Promise<string> {
-  const { data: existing } = await supabase
-    .from('operators')
-    .select('id')
-    .eq('slug', 'independent')
-    .maybeSingle();
+  const { rows } = await pool.query(
+    `SELECT id FROM operators WHERE slug = 'independent'`,
+  );
+  if (rows[0]) return rows[0].id as string;
 
-  if (existing?.id) return existing.id as string;
-
-  const { data: created, error } = await supabase
-    .from('operators')
-    .insert({
-      name: 'Independent',
-      slug: 'independent',
-      timezone: 'UTC',
-      locale: 'en',
-      is_active: true,
-    })
-    .select('id')
-    .single();
-
-  if (error) throw AppError.internal(`Failed to create self-operator: ${error.message}`);
-  return (created as { id: string }).id;
+  const { rows: created } = await pool.query(
+    `INSERT INTO operators (name, slug, timezone, locale, is_active)
+     VALUES ('Independent', 'independent', 'UTC', 'en', true)
+     RETURNING id`,
+  );
+  if (!created[0]) throw AppError.internal('Failed to create self-operator');
+  return created[0].id as string;
 }
 
 export interface CreateDriverInput {
@@ -280,20 +219,21 @@ export interface CreateDriverInput {
 }
 
 export async function createDriverRecord(input: CreateDriverInput & { operator_id: string }): Promise<Driver> {
-  const { data, error } = await supabase
-    .from('drivers')
-    .insert({
-      user_id: input.user_id,
-      operator_id: input.operator_id,
-      availability_status: input.availability_status ?? 'available',
-      license_number: input.license_number,
-      license_country: input.license_country,
-      license_expires_at: input.license_expires_at,
-      is_active: input.is_active ?? true,
-    })
-    .select()
-    .single();
-
-  if (error) throw AppError.internal(error.message);
-  return data as Driver;
+  const { rows } = await pool.query(
+    `INSERT INTO drivers
+       (user_id, operator_id, availability_status, license_number, license_country, license_expires_at, is_active)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     RETURNING *`,
+    [
+      input.user_id,
+      input.operator_id,
+      input.availability_status ?? 'available',
+      input.license_number,
+      input.license_country,
+      input.license_expires_at,
+      input.is_active ?? true,
+    ],
+  );
+  if (!rows[0]) throw AppError.internal('Failed to create driver record');
+  return rows[0] as Driver;
 }

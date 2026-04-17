@@ -1,5 +1,5 @@
 import { AppError } from '../../shared/errors/AppError';
-import { supabase } from '../../shared/db/supabase.client';
+import { pool } from '../../shared/db/pg.client';
 import {
   listAssignments,
   findAssignmentById,
@@ -25,11 +25,11 @@ export async function addAssignment(input: {
   const isPlatformWide = input.requester_role === 'platform_admin' || input.requester_role === 'superadmin';
 
   // Validate driver exists and belongs to operator
-  const { data: driver } = await supabase
-    .from('drivers')
-    .select('id, operator_id')
-    .eq('id', input.driver_id)
-    .single();
+  const { rows: driverRows } = await pool.query(
+    `SELECT id, operator_id FROM drivers WHERE id = $1`,
+    [input.driver_id],
+  );
+  const driver = driverRows[0];
 
   if (!driver) throw AppError.notFound('Driver');
 
@@ -39,11 +39,11 @@ export async function addAssignment(input: {
   }
 
   // Validate vehicle exists and belongs to same operator
-  const { data: vehicle } = await supabase
-    .from('vehicles')
-    .select('id, operator_id')
-    .eq('id', input.vehicle_id)
-    .single();
+  const { rows: vehicleRows } = await pool.query(
+    `SELECT id, operator_id FROM vehicles WHERE id = $1`,
+    [input.vehicle_id],
+  );
+  const vehicle = vehicleRows[0];
 
   if (!vehicle) throw AppError.notFound('Vehicle');
   if ((vehicle.operator_id as string) !== operatorId) {

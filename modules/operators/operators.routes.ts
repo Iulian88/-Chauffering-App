@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { requireAuth, requireRole } from '../../shared/middleware/auth.middleware';
-import { supabase } from '../../shared/db/supabase.client';
+import { pool } from '../../shared/db/pg.client';
 import { AppError } from '../../shared/errors/AppError';
 import { checkOperatorHealth } from '../dispatch/dispatch.service';
 
@@ -24,13 +24,9 @@ router.get(
       throw AppError.forbidden('Access denied');
     }
 
-    const { data, error } = await supabase
-      .from('operators')
-      .select('*')
-      .eq('id', req.params.id)
-      .single();
-
-    if (error || !data) throw AppError.notFound('Operator');
+    const { rows } = await pool.query(`SELECT * FROM operators WHERE id = $1`, [req.params.id]);
+    const data = rows[0];
+    if (!data) throw AppError.notFound('Operator');
     res.json({ data });
   },
 );
@@ -57,14 +53,15 @@ router.patch(
     });
 
     const updates = UpdateSchema.parse(req.body);
-    const { data, error } = await supabase
-      .from('operators')
-      .update({ ...updates, updated_at: new Date().toISOString() })
-      .eq('id', req.params.id)
-      .select()
-      .single();
-
-    if (error) throw AppError.internal(error.message);
+    const cols = Object.keys(updates);
+    const vals = Object.values(updates);
+    const setClauses = [...cols.map((c, i) => `${c} = $${i + 1}`), 'updated_at = now()'];
+    const { rows } = await pool.query(
+      `UPDATE operators SET ${setClauses.join(', ')} WHERE id = $${cols.length + 1} RETURNING *`,
+      [...vals, req.params.id],
+    );
+    const data = rows[0];
+    if (!data) throw AppError.notFound('Operator');
     res.json({ data });
   },
 );

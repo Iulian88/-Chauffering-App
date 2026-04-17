@@ -1,4 +1,4 @@
-import { supabase } from '../../shared/db/supabase.client';
+import { pool } from '../../shared/db/pg.client';
 import { VehicleSegment, PricingSnapshot } from '../../shared/types/domain';
 
 export async function getActiveRuleSnapshot(
@@ -7,19 +7,17 @@ export async function getActiveRuleSnapshot(
 ): Promise<PricingSnapshot | null> {
   const now = new Date().toISOString();
 
-  const { data, error } = await supabase
-    .from('pricing_rules')
-    .select('id, base_fare, per_km_rate, per_min_rate, minimum_fare, surge_multiplier, currency')
-    .eq('operator_id', operator_id)
-    .eq('segment', segment)
-    .eq('is_active', true)
-    .lte('valid_from', now)
-    .or(`valid_until.is.null,valid_until.gte.${now}`)
-    .order('valid_from', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const { rows } = await pool.query(
+    `SELECT id, base_fare, per_km_rate, per_min_rate, minimum_fare, surge_multiplier, currency
+     FROM pricing_rules
+     WHERE operator_id = $1 AND segment = $2 AND is_active = true
+       AND valid_from <= $3 AND (valid_until IS NULL OR valid_until >= $3)
+     ORDER BY valid_from DESC LIMIT 1`,
+    [operator_id, segment, now],
+  );
 
-  if (error || !data) return null;
+  const data = rows[0];
+  if (!data) return null;
 
   return {
     rule_id: data.id,

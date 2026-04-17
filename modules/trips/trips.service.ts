@@ -1,7 +1,7 @@
 import { Request } from 'express';
 import { Trip, TripStatus, BookingStatus, AuthUser } from '../../shared/types/domain';
 import { AppError } from '../../shared/errors/AppError';
-import { getSupabaseForRequest, supabase } from '../../shared/db/supabase.client';
+import { pool } from '../../shared/db/pg.client';
 import {
   insertTrip,
   findTripById,
@@ -107,62 +107,73 @@ export async function createTrip(input: CreateTripInput, user: AuthUser): Promis
   }
 
   // Verify driver exists, is active, and belongs to the booking's operator
-  const { data: driver, error: driverError } = await (
-    await import('../../shared/db/supabase.client')
-  ).supabase
-    .from('drivers')
-    .select('id, availability_status, is_active, operator_id')
-    .eq('id', input.driver_id)
-    .eq('operator_id', scopedOperatorId)
-    .single();
-
-  if (driverError || !driver) throw AppError.notFound('Driver');
+  const { rows: driverRows } = await pool.query(
+    `SELECT id, availability_status, is_active, operator_id FROM drivers
+     WHERE id = $1 AND operator_id = $2`,
+    [input.driver_id, scopedOperatorId],
+  );
+  const driver = driverRows[0];
+  if (!driver) throw AppError.notFound('Driver');
   if (!driver.is_active) throw AppError.unprocessable('Driver is inactive', 'DRIVER_INACTIVE');
 
   // Verify vehicle belongs to the booking's operator
-  const { data: vehicle, error: vehicleError } = await (
-    await import('../../shared/db/supabase.client')
-  ).supabase
-    .from('vehicles')
-    .select('id, is_active, operator_id')
-    .eq('id', input.vehicle_id)
-    .eq('operator_id', scopedOperatorId)
-    .single();
-
-  if (vehicleError || !vehicle) throw AppError.notFound('Vehicle');
+  const { rows: vehicleRows } = await pool.query(
+    `SELECT id, is_active, operator_id FROM vehicles
+     WHERE id = $1 AND operator_id = $2`,
+    [input.vehicle_id, scopedOperatorId],
+  );
+  const vehicle = vehicleRows[0];
+  if (!vehicle) throw AppError.notFound('Vehicle');
   if (!vehicle.is_active) throw AppError.unprocessable('Vehicle is inactive', 'VEHICLE_INACTIVE');
 
-  // ── Atomic dispatch lock ──────────────────────────────────────────────────
-  // The DB function serializes concurrent requests via SELECT FOR UPDATE on the
-  // driver row, then atomically: creates the trip, sets driver → busy, and
-  // advances booking → dispatched.  App-level checks above are fast pre-flights;
-  // the RPC is the authoritative correctness gate.
-  const { data: rpcRows, error: rpcError } = await supabase.rpc('assign_driver_atomic', {
-    p_driver_id:   input.driver_id,
-    p_booking_id:  input.booking_id,
-    p_vehicle_id:  input.vehicle_id,
-    p_operator_id: scopedOperatorId,
-    p_assigned_by: user.id,
-  });
+  // ── Atomic dispatch via pg transaction ──────────────────────────────────────
+  // SELECT FOR UPDATE on driver row prevents concurrent double-assignment.
+  const client = await pool.connect();
+  let trip: Trip;
+  try {
+    await client.query('BEGIN');
 
-  if (rpcError) throw AppError.internal(`assign_driver_atomic failed: ${rpcError.message}`);
-
-  const rpcResult = Array.isArray(rpcRows) ? rpcRows[0] : rpcRows;
-
-  if (!rpcResult?.success) {
-    const code: string = rpcResult?.error_code ?? 'DISPATCH_FAILED';
-    if (code === 'DRIVER_ALREADY_ASSIGNED') {
+    // Lock driver row and re-check availability
+    const { rows: [lockedDriver] } = await client.query(
+      `SELECT id, availability_status FROM drivers WHERE id = $1 FOR UPDATE`,
+      [input.driver_id],
+    );
+    if (!lockedDriver) { await client.query('ROLLBACK'); throw AppError.notFound('Driver'); }
+    if (lockedDriver.availability_status !== 'available') {
+      await client.query('ROLLBACK');
       throw AppError.conflict(
         'Driver is not available — already assigned to an active trip',
         'DRIVER_ALREADY_ASSIGNED',
       );
     }
-    throw AppError.unprocessable(code, code);
-  }
 
-  // Fetch the full trip record created by the RPC
-  const trip = await findTripByIdGlobal(rpcResult.trip_id as string);
-  if (!trip) throw AppError.internal('Trip was created atomically but could not be retrieved');
+    // Insert the trip
+    const { rows: [newTrip] } = await client.query(
+      `INSERT INTO trips (booking_id, driver_id, vehicle_id, operator_id, status, assigned_at)
+       VALUES ($1, $2, $3, $4, 'assigned', now()) RETURNING *`,
+      [input.booking_id, input.driver_id, input.vehicle_id, scopedOperatorId],
+    );
+
+    // Set driver busy
+    await client.query(
+      `UPDATE drivers SET availability_status = 'busy', updated_at = now() WHERE id = $1`,
+      [input.driver_id],
+    );
+
+    // Advance booking to dispatched
+    await client.query(
+      `UPDATE bookings SET status = 'dispatched', dispatch_status = 'assigned', updated_at = now() WHERE id = $1`,
+      [input.booking_id],
+    );
+
+    await client.query('COMMIT');
+    trip = newTrip as Trip;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 
   // Audit log (non-atomic with the assignment — acceptable for audit trail)
   await insertDispatchLog({
@@ -182,14 +193,11 @@ export async function getTrip(id: string, user: AuthUser): Promise<Trip> {
 
   if (user.role === 'driver') {
     // Drivers look up their own driver_id first
-    const { data: driverRow } = await (
-      await import('../../shared/db/supabase.client')
-    ).supabase
-      .from('drivers')
-      .select('id')
-      .eq('user_id', user.id)
-      .single();
-
+    const { rows: driverRows } = await pool.query(
+      `SELECT id FROM drivers WHERE user_id = $1`,
+      [user.id],
+    );
+    const driverRow = driverRows[0];
     if (!driverRow) throw AppError.notFound('Driver profile');
     trip = await findTripByIdForDriver(id, driverRow.id);
   } else {
@@ -285,19 +293,13 @@ async function advanceTripStatus(
 // Allows an operator or dispatcher to force-start an assigned trip,
 // bypassing the driver-accept step. Sets trip to en_route and booking to in_progress.
 export async function startTrip(
-  req: Request,
+  _req: Request,
   tripId: string,
   user: AuthUser,
 ): Promise<Trip> {
-  const db = getSupabaseForRequest(req);
-
-  const { data: trip, error } = await db
-    .from('trips')
-    .select('*')
-    .eq('id', tripId)
-    .single();
-
-  if (error || !trip) throw AppError.notFound('Trip');
+  const { rows } = await pool.query(`SELECT * FROM trips WHERE id = $1`, [tripId]);
+  const trip = rows[0];
+  if (!trip) throw AppError.notFound('Trip');
 
   // Scope: operator staff can only act on their own operator's trips
   if (!isPlatformWide(user.role) && user.operator_id && trip.operator_id !== user.operator_id) {
@@ -318,14 +320,12 @@ export async function startTrip(
 
   const now = new Date().toISOString();
 
-  const { data: updated, error: updateError } = await db
-    .from('trips')
-    .update({ status: 'en_route', en_route_at: now, updated_at: now })
-    .eq('id', tripId)
-    .select()
-    .single();
-
-  if (updateError || !updated) throw AppError.internal('Failed to start trip');
+  const { rows: updatedRows } = await pool.query(
+    `UPDATE trips SET status = 'en_route', en_route_at = $1, updated_at = $1 WHERE id = $2 RETURNING *`,
+    [now, tripId],
+  );
+  const updated = updatedRows[0];
+  if (!updated) throw AppError.internal('Failed to start trip');
 
   // Sync booking → in_progress
   await setBookingStatus(trip.booking_id, trip.operator_id, 'in_progress');
@@ -336,19 +336,13 @@ export async function startTrip(
 // ─── Operator: complete trip (en_route → completed) ───────────────────────────
 // Marks trip completed, syncs booking to completed, and frees the driver.
 export async function completeTrip(
-  req: Request,
+  _req: Request,
   tripId: string,
   user: AuthUser,
 ): Promise<Trip> {
-  const db = getSupabaseForRequest(req);
-
-  const { data: trip, error } = await db
-    .from('trips')
-    .select('*')
-    .eq('id', tripId)
-    .single();
-
-  if (error || !trip) throw AppError.notFound('Trip');
+  const { rows } = await pool.query(`SELECT * FROM trips WHERE id = $1`, [tripId]);
+  const trip = rows[0];
+  if (!trip) throw AppError.notFound('Trip');
 
   // Scope: operator staff can only act on their own operator's trips
   if (!isPlatformWide(user.role) && user.operator_id && trip.operator_id !== user.operator_id) {
@@ -364,26 +358,22 @@ export async function completeTrip(
 
   const now = new Date().toISOString();
 
-  const { data: updated, error: updateError } = await db
-    .from('trips')
-    .update({ status: 'completed', completed_at: now, updated_at: now })
-    .eq('id', tripId)
-    .select()
-    .single();
-
-  if (updateError || !updated) throw AppError.internal('Failed to complete trip');
+  const { rows: updatedRows } = await pool.query(
+    `UPDATE trips SET status = 'completed', completed_at = $1, updated_at = $1 WHERE id = $2 RETURNING *`,
+    [now, tripId],
+  );
+  const updated = updatedRows[0];
+  if (!updated) throw AppError.internal('Failed to complete trip');
 
   // Sync booking → completed
   await setBookingStatus(trip.booking_id, trip.operator_id, 'completed');
 
-  // Free the driver — Guard 5: idempotent, skip if driver is already available
-  const { data: driverStatus } = await supabase
-    .from('drivers')
-    .select('availability_status')
-    .eq('id', trip.driver_id)
-    .maybeSingle();
-
-  if (driverStatus?.availability_status !== 'available') {
+  // Free the driver — idempotent guard via availability_status check
+  const { rows: driverRows } = await pool.query(
+    `SELECT availability_status FROM drivers WHERE id = $1`,
+    [trip.driver_id],
+  );
+  if (driverRows[0]?.availability_status !== 'available') {
     await setDriverAvailability(trip.driver_id, 'available');
   }
 

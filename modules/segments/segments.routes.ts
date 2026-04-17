@@ -1,7 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { requireAuth } from '../../shared/middleware/auth.middleware';
-import { supabase } from '../../shared/db/supabase.client';
-import { AppError } from '../../shared/errors/AppError';
+import { pool } from '../../shared/db/pg.client';
 
 const router = Router();
 
@@ -10,14 +9,11 @@ router.get(
   '/',
   requireAuth,
   async (_req: Request, res: Response) => {
-    const { data, error } = await supabase
-      .from('segments')
-      .select('name, label, is_active, sort_order')
-      .eq('is_active', true)
-      .order('sort_order', { ascending: true });
-
-    if (error) throw AppError.internal(error.message);
-    res.json({ data: data ?? [] });
+    const { rows } = await pool.query(
+      `SELECT name, label, is_active, sort_order
+       FROM segments WHERE is_active = true ORDER BY sort_order ASC`,
+    );
+    res.json({ data: rows });
   },
 );
 
