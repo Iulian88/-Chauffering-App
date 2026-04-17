@@ -27,33 +27,10 @@ export interface AssignmentWithDetails extends Assignment {
 }
 
 export async function listAssignments(operator_id?: string): Promise<AssignmentWithDetails[]> {
+  // Step 1: fetch assignments (no nested joins — avoids FK schema cache issues)
   let query = supabase
     .from('driver_vehicle_assignments')
-    .select(`
-      id,
-      driver_id,
-      vehicle_id,
-      operator_id,
-      is_primary,
-      assigned_at,
-      unassigned_at,
-      driver:drivers!driver_id (
-        id,
-        license_number,
-        user_profiles (
-          full_name,
-          phone
-        )
-      ),
-      vehicle:vehicles!vehicle_id (
-        id,
-        plate,
-        make,
-        model,
-        segment,
-        is_active
-      )
-    `)
+    .select('id, driver_id, vehicle_id, operator_id, is_primary, assigned_at, unassigned_at')
     .is('unassigned_at', null)
     .order('assigned_at', { ascending: false });
 
@@ -61,9 +38,57 @@ export async function listAssignments(operator_id?: string): Promise<AssignmentW
     query = query.eq('operator_id', operator_id);
   }
 
-  const { data, error } = await query;
+  const { data: rows, error } = await query;
   if (error) throw new Error(error.message);
-  return (data ?? []) as unknown as AssignmentWithDetails[];
+  if (!rows || rows.length === 0) return [];
+
+  const assignments = rows as Assignment[];
+
+  // Step 2: fetch drivers + vehicles in parallel
+  const driverIds = [...new Set(assignments.map((a) => a.driver_id))];
+  const vehicleIds = [...new Set(assignments.map((a) => a.vehicle_id))];
+
+  const [{ data: drivers }, { data: vehicles }] = await Promise.all([
+    supabase
+      .from('drivers')
+      .select('id, license_number, user_id')
+      .in('id', driverIds),
+    supabase
+      .from('vehicles')
+      .select('id, plate, make, model, segment, is_active')
+      .in('id', vehicleIds),
+  ]);
+
+  // Step 3: fetch user_profiles for those drivers
+  const userIds = [...new Set((drivers ?? []).map((d: Record<string, unknown>) => d.user_id as string).filter(Boolean))];
+  const { data: profiles } = userIds.length > 0
+    ? await supabase.from('user_profiles').select('id, full_name, phone').in('id', userIds)
+    : { data: [] };
+
+  // Build lookup maps
+  const profileMap = new Map(
+    (profiles ?? []).map((p: { id: string; full_name: string; phone: string | null }) => [p.id, p]),
+  );
+  const driverMap = new Map(
+    (drivers ?? []).map((d: Record<string, unknown>) => [
+      d.id as string,
+      {
+        id: d.id as string,
+        license_number: d.license_number as string,
+        user_profiles: profileMap.get(d.user_id as string) ?? null,
+      },
+    ]),
+  );
+  const vehicleMap = new Map(
+    (vehicles ?? []).map((v: Record<string, unknown>) => [v.id as string, v]),
+  );
+
+  // Step 4: merge
+  return assignments.map((a) => ({
+    ...a,
+    driver: driverMap.get(a.driver_id) ?? null,
+    vehicle: (vehicleMap.get(a.vehicle_id) ?? null) as AssignmentWithDetails['vehicle'],
+  }));
 }
 
 export async function findAssignmentById(id: string): Promise<Assignment | null> {
