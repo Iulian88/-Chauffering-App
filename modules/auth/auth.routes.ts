@@ -90,14 +90,17 @@ router.post('/login', async (req: Request, res: Response) => {
     throw AppError.unauthorized('Invalid email or password');
   }
 
-  // Enrich with profile
+  // Enrich with profile (supabase_uid = Supabase Auth UUID, id = Railway internal UUID)
   const { rows } = await pool.query(
-    `SELECT id, full_name, role, operator_id, is_active FROM user_profiles WHERE id = $1`,
+    `SELECT id, full_name, role, operator_id, active AS is_active FROM users WHERE supabase_uid = $1`,
     [data.user.id],
   );
   const profile = rows[0];
 
-  if (!profile?.is_active) {
+  if (!profile) {
+    throw AppError.forbidden('User profile not found in system');
+  }
+  if (!profile.is_active) {
     throw AppError.forbidden('Account is deactivated');
   }
 
