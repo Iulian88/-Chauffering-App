@@ -79,8 +79,8 @@ export default function VehiclesPage() {
                   </td>
                   <td className="px-5 py-4 text-xs text-muted">
                     {vehicle.assigned_driver_id
-                      ? vehicle.assigned_driver_id.slice(0, 8).toUpperCase()
-                      : <span className="text-muted/50">Unassigned</span>
+                      ? <span className="font-mono">{vehicle.assigned_driver_id.slice(0, 8).toUpperCase()}</span>
+                      : <span className="text-muted/50 italic">Unassigned</span>
                     }
                   </td>
                   <td className="px-5 py-4">

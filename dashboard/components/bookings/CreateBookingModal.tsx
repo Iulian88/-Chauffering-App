@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, type FormEvent } from 'react'
 import { X } from 'lucide-react'
 import { Loader } from '@googlemaps/js-api-loader'
-import type { ApiClient } from '@/lib/api'
+import type { ApiClient, Segment } from '@/lib/api'
 
 interface Props {
   api: ApiClient
@@ -11,12 +11,12 @@ interface Props {
   onSuccess: () => void
 }
 
-const SEGMENTS = ['ride', 'business', 'executive', 'office_lux', 'prime_lux'] as const
 const CHANNELS = ['manual', 'phone', 'app', 'partner', 'website'] as const
 
 export function CreateBookingModal({ api, onClose, onSuccess }: Props) {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError]           = useState<string | null>(null)
+  const [segments, setSegments]     = useState<Segment[]>([])
 
   // ─── Maps state ──────────────────────────────────────────────────────────────
   const [mapsReady, setMapsReady]             = useState(false)
@@ -33,7 +33,7 @@ export function CreateBookingModal({ api, onClose, onSuccess }: Props) {
   const dropoffRef = useRef<HTMLInputElement>(null)
 
   const [form, setForm] = useState({
-    segment:          'business' as typeof SEGMENTS[number],
+    segment:          'business' as string,
     pickup_address:   '',
     pickup_notes:     '',
     dropoff_address:  '',
@@ -46,6 +46,22 @@ export function CreateBookingModal({ api, onClose, onSuccess }: Props) {
     partner:          '',
     channel:          'manual' as string,
   })
+
+  // Load segments from API on mount
+  useEffect(() => {
+    api.segments.list()
+      .then(res => setSegments(res.data))
+      .catch(() => {
+        // Fallback to hardcoded if API unavailable
+        setSegments([
+          { name: 'ride',       label: 'Standard Ride',  is_active: true, sort_order: 1 },
+          { name: 'business',   label: 'Business Class', is_active: true, sort_order: 2 },
+          { name: 'executive',  label: 'Executive',      is_active: true, sort_order: 3 },
+          { name: 'office_lux', label: 'Office Luxury',  is_active: true, sort_order: 4 },
+          { name: 'prime_lux',  label: 'Prime Luxury',   is_active: true, sort_order: 5 },
+        ])
+      })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   function set(field: keyof typeof form, value: string) {
     setForm(prev => ({ ...prev, [field]: value }))
@@ -200,7 +216,7 @@ export function CreateBookingModal({ api, onClose, onSuccess }: Props) {
         : Math.round(Number(form.duration_sec) * 60)
 
       await api.bookings.create({
-        segment:         form.segment,
+        segment:         form.segment as import('@/lib/api').VehicleSegment,
         pickup_address:  form.pickup_address,
         pickup_lat:      pickupLat  ?? 0,
         pickup_lng:      pickupLng  ?? 0,
@@ -250,8 +266,8 @@ export function CreateBookingModal({ api, onClose, onSuccess }: Props) {
               className={inputCls}
               required
             >
-              {SEGMENTS.map(s => (
-                <option key={s} value={s}>{s.replace('_', ' ')}</option>
+              {segments.map(s => (
+                <option key={s.name} value={s.name}>{s.label}</option>
               ))}
             </select>
           </Field>

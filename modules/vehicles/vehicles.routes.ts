@@ -13,7 +13,7 @@ const VehicleSchema = z.object({
   model: z.string().min(1),
   year: z.number().int().min(2000).max(new Date().getFullYear() + 1),
   color: z.string().optional(),
-  assigned_driver_id: z.string().uuid().nullable().optional(),
+  // assigned_driver_id intentionally excluded — use /assignments API instead
 });
 
 router.get(
@@ -26,12 +26,34 @@ router.get(
       throw AppError.forbidden('No operator scope');
     }
 
-    const { data, error } = await supabase
+    // Fetch vehicles with their primary assigned driver (via driver_vehicle_assignments)
+    const { data: rawVehicles, error } = await supabase
       .from('vehicles')
-      .select('*')
+      .select('id, operator_id, segment, plate, make, model, year, color, is_active, created_at, updated_at')
       .eq('operator_id', operator_id as string)
       .eq('is_active', true)
       .order('created_at', { ascending: false });
+
+    if (error) throw AppError.internal(error.message);
+    const vehicleIds = (rawVehicles ?? []).map((v: { id: string }) => v.id);
+
+    // Fetch primary assignments for these vehicles
+    const { data: assignments } = vehicleIds.length > 0
+      ? await supabase
+          .from('driver_vehicle_assignments')
+          .select('vehicle_id, driver_id, is_primary')
+          .in('vehicle_id', vehicleIds)
+          .eq('is_primary', true)
+      : { data: [] };
+
+    const assignmentMap = new Map(
+      (assignments ?? []).map((a: { vehicle_id: string; driver_id: string }) => [a.vehicle_id, a.driver_id]),
+    );
+
+    const data = (rawVehicles ?? []).map((v: Record<string, unknown>) => ({
+      ...v,
+      assigned_driver_id: assignmentMap.get(v.id as string) ?? null,
+    }));
 
     if (error) throw AppError.internal(error.message);
     res.json({ data: data ?? [], count: data?.length ?? 0 });

@@ -16,6 +16,8 @@ import bookingRoutes from './modules/bookings/bookings.routes';
 import tripRoutes from './modules/trips/trips.routes';
 import dispatchRoutes from './modules/dispatch/dispatch.routes';
 import pricingRoutes from './modules/pricing/pricing.routes';
+import assignmentRoutes from './modules/assignments/assignments.routes';
+import segmentRoutes from './modules/segments/segments.routes';
 
 const app = express();
 
@@ -43,8 +45,10 @@ v1.use('/drivers',   driverRoutes);
 v1.use('/vehicles',  vehicleRoutes);
 v1.use('/bookings',  bookingRoutes);
 v1.use('/trips',     tripRoutes);
-v1.use('/dispatch',  dispatchRoutes);
-v1.use('/pricing',   pricingRoutes);
+v1.use('/dispatch',    dispatchRoutes);
+v1.use('/pricing',     pricingRoutes);
+v1.use('/assignments', assignmentRoutes);
+v1.use('/segments',    segmentRoutes);
 
 app.use('/api/v1', v1);
 

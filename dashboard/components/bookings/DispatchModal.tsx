@@ -90,8 +90,11 @@ export function DispatchModal({ bookingId, api, onClose, onSuccess }: Props) {
                   <p className="text-xs text-muted">
                     Pool: {meta.totalDrivers} drivers · {meta.withVehicle} with vehicle · {meta.exactMatches} segment match
                   </p>
-                )}
-                {meta?.fallbackUsed && (
+                )}                {meta && meta.missingAssignments > 0 && (
+                  <p className="text-xs text-amber-400">
+                    ⚠ {meta.missingAssignments} driver{meta.missingAssignments > 1 ? 's have' : ' has'} no vehicle assignment — go to Assignments to fix
+                  </p>
+                )}                {meta?.fallbackUsed && (
                   <p className="text-xs text-accent">Fallback segment was used</p>
                 )}
               </div>
@@ -101,23 +104,31 @@ export function DispatchModal({ bookingId, api, onClose, onSuccess }: Props) {
           {!loading && drivers.length > 0 && (
             <div className="space-y-1.5">
               {meta && (
-                <div className="flex items-center gap-2 mb-2">
-                  {meta.matchType === 'exact' && (
-                    <span className="text-xs text-green-500 bg-green-500/10 border border-green-500/20 rounded px-2 py-0.5">
-                      Exact segment match
-                    </span>
-                  )}
-                  {meta.matchType === 'fallback' && (
-                    <span className="text-xs text-amber-500 bg-amber-500/10 border border-amber-500/20 rounded px-2 py-0.5">
-                      Fallback segment match
-                    </span>
-                  )}
-                  {meta.degraded && (
-                    <div className="flex items-center gap-1.5 text-xs text-amber-400 border border-amber-500/20 rounded px-2 py-0.5 bg-amber-500/5">
-                      <AlertCircle size={11} />
-                      <span>DEGRADED_MATCH — no exact coverage for this segment</span>
-                    </div>
-                  )}
+                <div className="space-y-1.5 mb-3">
+                  <div className="flex items-center gap-2">
+                    {meta.matchType === 'exact' && (
+                      <span className="text-xs text-green-500 bg-green-500/10 border border-green-500/20 rounded px-2 py-0.5">
+                        Exact segment match
+                      </span>
+                    )}
+                    {meta.matchType === 'fallback' && (
+                      <span className="text-xs text-amber-500 bg-amber-500/10 border border-amber-500/20 rounded px-2 py-0.5">
+                        Fallback segment match
+                      </span>
+                    )}
+                    {meta.degraded && (
+                      <div className="flex items-center gap-1.5 text-xs text-amber-400 border border-amber-500/20 rounded px-2 py-0.5 bg-amber-500/5">
+                        <AlertCircle size={11} />
+                        <span>DEGRADED_MATCH — no exact coverage for this segment</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="rounded-md bg-base border border-border/60 px-3 py-2 text-xs text-muted space-y-0.5">
+                    <p>Pool: <span className="text-secondary">{meta.totalDrivers}</span> drivers · <span className="text-secondary">{meta.withVehicle}</span> with vehicle · <span className="text-secondary">{meta.exactMatches}</span> segment match</p>
+                    {meta.missingAssignments > 0 && (
+                      <p className="text-amber-400">⚠ {meta.missingAssignments} driver{meta.missingAssignments > 1 ? 's' : ''} filtered out — no vehicle assignment</p>
+                    )}
+                  </div>
                 </div>
               )}
               <label className="block text-xs font-medium text-secondary uppercase tracking-wider">

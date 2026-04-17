@@ -69,6 +69,7 @@ export interface DispatchMeta {
   reasonIfEmpty: string | null;
   matchType: MatchType;
   degraded: boolean; // true when fallback was used (soft-mode)
+  missingAssignments: number; // drivers with no primary vehicle assignment
 }
 
 export interface AvailableDriversResult {
@@ -162,7 +163,7 @@ export async function getAvailableDriversForBooking(
     console.log('[DISPATCH] Stage 1 — BLOCKED: BOOKING_HAS_NO_OPERATOR');
     return {
       data: [],
-      meta: { totalDrivers: 0, withVehicle: 0, exactMatches: 0, fallbackUsed: false, reasonIfEmpty: 'BOOKING_HAS_NO_OPERATOR', matchType: 'none', degraded: false },
+      meta: { totalDrivers: 0, withVehicle: 0, exactMatches: 0, fallbackUsed: false, reasonIfEmpty: 'BOOKING_HAS_NO_OPERATOR', matchType: 'none', degraded: false, missingAssignments: 0 },
     };
   }
 
@@ -187,7 +188,7 @@ export async function getAvailableDriversForBooking(
   if (!rawDrivers || rawDrivers.length === 0) {
     return {
       data: [],
-      meta: { totalDrivers: 0, withVehicle: 0, exactMatches: 0, fallbackUsed: false, reasonIfEmpty: 'NO_DRIVERS_FOR_OPERATOR', matchType: 'none', degraded: false },
+      meta: { totalDrivers: 0, withVehicle: 0, exactMatches: 0, fallbackUsed: false, reasonIfEmpty: 'NO_DRIVERS_FOR_OPERATOR', matchType: 'none', degraded: false, missingAssignments: 0 },
     };
   }
 
@@ -205,6 +206,8 @@ export async function getAvailableDriversForBooking(
   const driversWithAssignmentCount = new Set((assignments ?? []).map((a: { driver_id: string }) => a.driver_id)).size;
   console.log('[DISPATCH] Stage 3 — DRIVERS_WITH_ASSIGNMENT:', driversWithAssignmentCount, '/', rawDrivers.length);
 
+  const missingAssignments = rawDrivers.length - driversWithAssignmentCount;
+
   const assignmentByDriver = new Map(
     (assignments ?? []).map((a: { driver_id: string; vehicle_id: string; is_primary: boolean }) => [a.driver_id, a]),
   );
@@ -216,7 +219,7 @@ export async function getAvailableDriversForBooking(
     console.log('[DISPATCH] Stage 4 — NO_VEHICLES_ASSIGNED: no vehicle IDs from assignments');
     return {
       data: [],
-      meta: { totalDrivers: rawDrivers.length, withVehicle: 0, exactMatches: 0, fallbackUsed: false, reasonIfEmpty: 'NO_VEHICLES_ASSIGNED', matchType: 'none', degraded: false },
+      meta: { totalDrivers: rawDrivers.length, withVehicle: 0, exactMatches: 0, fallbackUsed: false, reasonIfEmpty: 'NO_VEHICLES_ASSIGNED', matchType: 'none', degraded: false, missingAssignments },
     };
   }
 
@@ -253,7 +256,7 @@ export async function getAvailableDriversForBooking(
   if (driversWithVehicle.length === 0) {
     return {
       data: [],
-      meta: { totalDrivers: rawDrivers.length, withVehicle: 0, exactMatches: 0, fallbackUsed: false, reasonIfEmpty: 'NO_VEHICLES_ASSIGNED', matchType: 'none', degraded: false },
+      meta: { totalDrivers: rawDrivers.length, withVehicle: 0, exactMatches: 0, fallbackUsed: false, reasonIfEmpty: 'NO_VEHICLES_ASSIGNED', matchType: 'none', degraded: false, missingAssignments },
     };
   }
 
@@ -282,6 +285,7 @@ export async function getAvailableDriversForBooking(
         reasonIfEmpty: strictReason,
         matchType: 'none',
         degraded: false,
+        missingAssignments,
       },
     };
   }
@@ -320,6 +324,7 @@ export async function getAvailableDriversForBooking(
       reasonIfEmpty: null,
       matchType,
       degraded: usedFallback, // DEGRADED_MATCH: fallback was needed
+      missingAssignments,
     },
   };
 }

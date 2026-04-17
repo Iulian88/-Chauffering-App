@@ -74,6 +74,27 @@ export interface DispatchMeta {
   reasonIfEmpty: string | null
   matchType: 'exact' | 'fallback' | 'none'
   degraded: boolean
+  missingAssignments: number
+}
+
+export interface Assignment {
+  id: string
+  driver_id: string
+  vehicle_id: string
+  operator_id: string
+  is_primary: boolean
+  assigned_at: string
+  unassigned_at: string | null
+  // Joined
+  driver?: { id: string; license_number: string; user_profiles?: { full_name: string; phone: string | null } }
+  vehicle?: { id: string; plate: string; make: string; model: string; segment: VehicleSegment; is_active: boolean }
+}
+
+export interface Segment {
+  name: string
+  label: string
+  is_active: boolean
+  sort_order: number
 }
 
 export interface OperatorHealth {
@@ -216,6 +237,20 @@ export function createApiClient(token: string) {
     operators: {
       health: (operatorId: string) =>
         req<{ data: OperatorHealth }>('GET', `/operators/${operatorId}/health`),
+    },
+    assignments: {
+      list: () =>
+        req<{ data: Assignment[] }>('GET', '/assignments'),
+      create: (body: { driver_id: string; vehicle_id: string; is_primary: boolean }) =>
+        req<{ data: Assignment }>('POST', '/assignments', body),
+      setPrimary: (id: string) =>
+        req<{ data: Assignment }>('PATCH', `/assignments/${id}/set-primary`),
+      remove: (id: string) =>
+        req<{ message: string }>('DELETE', `/assignments/${id}`),
+    },
+    segments: {
+      list: () =>
+        req<{ data: Segment[] }>('GET', '/segments'),
     },
   }
 }
