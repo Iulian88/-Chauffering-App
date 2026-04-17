@@ -6,7 +6,6 @@ export interface Assignment {
   vehicle_id: string;
   operator_id: string;
   is_primary: boolean;
-  assigned_at: string;
   unassigned_at: string | null;
 }
 
@@ -30,9 +29,9 @@ export async function listAssignments(operator_id?: string): Promise<AssignmentW
   // Step 1: fetch assignments (no nested joins — avoids FK schema cache issues)
   let query = supabase
     .from('driver_vehicle_assignments')
-    .select('id, driver_id, vehicle_id, operator_id, is_primary, assigned_at, unassigned_at')
+    .select('id, driver_id, vehicle_id, operator_id, is_primary, unassigned_at')
     .is('unassigned_at', null)
-    .order('assigned_at', { ascending: false });
+    .order('id', { ascending: false });
 
   if (operator_id) {
     query = query.eq('operator_id', operator_id);
@@ -129,7 +128,6 @@ export async function createAssignment(input: {
       vehicle_id: input.vehicle_id,
       operator_id: input.operator_id,
       is_primary: input.is_primary,
-      assigned_at: new Date().toISOString(),
     })
     .select()
     .single();
