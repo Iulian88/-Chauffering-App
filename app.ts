@@ -104,7 +104,10 @@ const bookingLimiter = rateLimit({
   store: makeStore('rl:bookings:'),
 });
 
-v1.use('/auth',      authLimiter);
+// authLimiter covers only mutation endpoints (brute-force protection)
+// GET /auth/me and /auth/fcm-token fall through to the global 300/15min limiter
+v1.use('/auth/login',    authLimiter);
+v1.use('/auth/register', authLimiter);
 v1.use('/bookings',  bookingLimiter);
 
 v1.use('/auth',      authRoutes);

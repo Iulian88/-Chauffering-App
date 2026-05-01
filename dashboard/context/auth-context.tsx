@@ -69,7 +69,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     initAuth()
 
-    // Keep token fresh on Supabase auto-refresh and sign-out events
+    // Keep token fresh on Supabase auto-refresh and sign-out events.
+    // INITIAL_SESSION is handled by initAuth(); SIGNED_IN is handled by login().
+    // Only call fetchMe() on TOKEN_REFRESHED to avoid duplicate /auth/me requests.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         if (!mounted) return
@@ -77,14 +79,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const accessToken = session.access_token
           localStorage.setItem(TOKEN_KEY, accessToken)
           setToken(accessToken)
-          try {
-            const me = await fetchMe(accessToken)
-            setUser(me)
-          } catch {
-            // Railway rejected token — force clean logout
-            localStorage.removeItem(TOKEN_KEY)
-            setToken(null)
-            setUser(null)
+          if (event === 'TOKEN_REFRESHED') {
+            try {
+              const me = await fetchMe(accessToken)
+              setUser(me)
+            } catch {
+              // Railway rejected refreshed token — force clean logout
+              localStorage.removeItem(TOKEN_KEY)
+              setToken(null)
+              setUser(null)
+            }
           }
         } else if (event === 'SIGNED_OUT') {
           localStorage.removeItem(TOKEN_KEY)
