@@ -33,6 +33,8 @@ const TOKEN_KEY = 'chf_access_token'
 const API_URL   = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000/api/v1'
 
 async function fetchMe(token: string): Promise<AuthUser> {
+  if (!token) throw new Error('Session invalid')
+  console.log('fetchMe called')
   const res = await fetch(`${API_URL}/auth/me`, {
     headers: { Authorization: `Bearer ${token}` },
   })
