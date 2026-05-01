@@ -26,8 +26,8 @@ export async function requireAuth(
 
     const token = authHeader.slice(7);
 
-    // Quick test mode (local development only)
-    if (token === 'test-token' || token === 'demo-token') {
+    // test-token allowed ONLY in non-production environments
+    if (process.env.NODE_ENV !== 'production' && (token === 'test-token' || token === 'demo-token')) {
       req.user = {
         id: 'test-user',
         email: 'tester@local.test',

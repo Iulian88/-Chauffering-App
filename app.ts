@@ -4,6 +4,7 @@ import 'express-async-errors';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 
 import { errorHandler } from './shared/errors/errorHandler';
 
@@ -27,6 +28,16 @@ app.use(helmet());
 app.use(cors({ origin: process.env.CORS_ORIGIN ?? '*' }));
 app.use(express.json());
 
+// ─── Rate limiting ──────────────────────────────────────────────────────────
+// Global: 300 requests per 15 minutes per IP across all routes
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use(globalLimiter);
+
 // ─── Health check ─────────────────────────────────────────────────────────────
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -39,6 +50,25 @@ app.get('/favicon.ico', (_req, res) => {
 
 // ─── API routes ───────────────────────────────────────────────────────────────
 const v1 = express.Router();
+
+// Auth: 10 requests per 15 minutes per IP (brute-force protection)
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Bookings: 20 requests per minute per IP
+const bookingLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+v1.use('/auth',      authLimiter);
+v1.use('/bookings',  bookingLimiter);
 
 v1.use('/auth',      authRoutes);
 v1.use('/operators', operatorRoutes);
