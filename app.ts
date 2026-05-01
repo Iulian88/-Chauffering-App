@@ -5,6 +5,8 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
+import { RedisStore } from 'rate-limit-redis';
+import Redis from 'ioredis';
 
 import { errorHandler } from './shared/errors/errorHandler';
 
@@ -44,12 +46,30 @@ app.use('/api', (_req, res, next) => {
 });
 
 // ─── Rate limiting ──────────────────────────────────────────────────────────
+// Use Redis as the shared store so limits are enforced consistently across
+// all Railway replicas. Falls back to in-memory (single-instance only) when
+// REDIS_URL is not set (e.g. local development without a Redis service).
+let redisClient: Redis | undefined;
+if (process.env.REDIS_URL) {
+  redisClient = new Redis(process.env.REDIS_URL, { lazyConnect: true, enableOfflineQueue: false });
+  redisClient.on('error', (err) => {
+    // Log but don't crash — rate limiter falls back gracefully
+    console.error('[redis] rate-limit store error:', err.message);
+  });
+}
+
+function makeStore(prefix: string): RedisStore | undefined {
+  if (!redisClient) return undefined; // express-rate-limit uses memory when store is undefined
+  return new RedisStore({ prefix, sendCommand: (...args: string[]) => (redisClient!.call as Function)(...args) });
+}
+
 // Global: 300 requests per 15 minutes per IP across all routes
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 300,
   standardHeaders: true,
   legacyHeaders: false,
+  store: makeStore('rl:global:'),
 });
 app.use(globalLimiter);
 
@@ -72,6 +92,7 @@ const authLimiter = rateLimit({
   max: 10,
   standardHeaders: true,
   legacyHeaders: false,
+  store: makeStore('rl:auth:'),
 });
 
 // Bookings: 20 requests per minute per IP
@@ -80,6 +101,7 @@ const bookingLimiter = rateLimit({
   max: 20,
   standardHeaders: true,
   legacyHeaders: false,
+  store: makeStore('rl:bookings:'),
 });
 
 v1.use('/auth',      authLimiter);
