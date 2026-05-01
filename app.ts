@@ -23,9 +23,12 @@ import marketplaceRoutes from './modules/marketplace/marketplace.routes';
 
 const app = express();
 
-// Trust Railway's reverse proxy so rate limiter reads the real client IP
-// (without this, every request appears to come from the same proxy IP)
-app.set('trust proxy', 1);
+// Trust Railway's proxy chain (Fastly CDN + Railway internal LB = 2 hops).
+// 'true' tells Express to read the leftmost IP in X-Forwarded-For as the
+// real client IP. Safe here because Fastly strips and rewrites X-Forwarded-For,
+// so clients cannot spoof it. Without this, req.ip resolves to a rotating
+// Fastly edge IP and the rate limiter starts a fresh counter per request.
+app.set('trust proxy', true);
 
 // ─── Security & parsing ───────────────────────────────────────────────────────
 app.use(helmet());
