@@ -71,7 +71,6 @@ async function getFirebaseAdmin() {
   if (!serviceAccountJson) return null;
 
   try {
-    // @ts-expect-error firebase-admin is an optional runtime dependency
     const admin = await import('firebase-admin');
     if (!admin.apps.length) {
       admin.initializeApp({

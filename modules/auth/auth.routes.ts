@@ -4,6 +4,7 @@ import { supabase, supabaseAuth } from '../../shared/db/supabase.client';
 import { pool } from '../../shared/db/pg.client';
 import { AppError } from '../../shared/errors/AppError';
 import { requireAuth } from '../../shared/middleware/auth.middleware';
+import { updateFcmToken } from './users.repository';
 
 const LoginSchema = z.object({
   email: z.string().email(),
@@ -141,6 +142,17 @@ router.post('/refresh', async (req: Request, res: Response) => {
 // GET /auth/me
 router.get('/me', requireAuth, (req: Request, res: Response) => {
   res.json({ data: req.user });
+});
+
+// POST /auth/fcm-token — register / refresh device FCM token for push notifications
+const FcmTokenSchema = z.object({
+  fcm_token: z.string().min(1),
+});
+
+router.post('/fcm-token', requireAuth, async (req: Request, res: Response) => {
+  const { fcm_token } = FcmTokenSchema.parse(req.body);
+  await updateFcmToken(req.user!.id, fcm_token);
+  res.json({ data: { success: true } });
 });
 
 export default router;

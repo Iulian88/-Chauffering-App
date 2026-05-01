@@ -17,6 +17,9 @@ import { findBookingByIdGlobal } from '../bookings/bookings.repository';
 import { setBookingStatus } from '../bookings/bookings.service';
 import { setDriverAvailability } from '../drivers/drivers.repository';
 import { CreateTripInput, RefuseTripInput, UpdateTripStatusInput } from './trips.schema';
+import { emitToOperator, emitToDriver } from '../../realtime.service';
+import { sendNotification } from '../../notifications.service';
+import { getFcmTokenByDriverId } from '../auth/users.repository';
 // ─── Transition map ───────────────────────────────────────────────────────────
 // Maps current trip status → allowed next statuses
 const ALLOWED_TRANSITIONS: Record<TripStatus, TripStatus[]> = {
@@ -208,6 +211,32 @@ export async function createTrip(input: CreateTripInput, user: AuthUser): Promis
     client.release();
   }
 
+  // Realtime events — fire-and-forget, errors caught inside emit functions
+  void emitToOperator(scopedOperatorId, 'trip.created', {
+    trip_id:    trip.id,
+    booking_id: trip.booking_id,
+    driver_id:  trip.driver_id,
+    vehicle_id: trip.vehicle_id,
+  });
+  void emitToDriver(trip.driver_id, 'trip.created', {
+    trip_id:    trip.id,
+    booking_id: trip.booking_id,
+  });
+
+  // Push notification — fire-and-forget, sendNotification handles errors internally
+  const fcmToken = await getFcmTokenByDriverId(trip.driver_id);
+  if (fcmToken) {
+    void sendNotification({
+      user_id:      trip.driver_id,
+      operator_id:  scopedOperatorId,
+      channel:      'push',
+      template_key: 'trip.assigned',
+      title:        'Cursă nouă asignată',
+      body:         'Ai o cursă nouă. Verifică aplicația.',
+      fcm_token:    fcmToken,
+    });
+  }
+
   // Audit log (non-atomic with the assignment — acceptable for audit trail)
   await insertDispatchLog({
     trip_id:     trip.id,
@@ -294,6 +323,20 @@ async function advanceTripStatus(
   };
 
   const updated = await updateTripStatus(trip.id, newStatus, extra);
+
+  // Realtime events — fire-and-forget, errors caught inside emit functions
+  void emitToOperator(updated.operator_id, 'trip.status_changed', {
+    trip_id:    updated.id,
+    booking_id: updated.booking_id,
+    old_status: trip.status,
+    new_status: updated.status,
+  });
+  if (newStatus === 'completed' || newStatus === 'refused') {
+    void emitToOperator(updated.operator_id, 'driver.availability_changed', {
+      driver_id:  updated.driver_id,
+      new_status: 'available',
+    });
+  }
 
   // Sync booking status
   const bookingStatus = TRIP_TO_BOOKING_STATUS[newStatus];
