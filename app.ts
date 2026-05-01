@@ -23,10 +23,22 @@ import marketplaceRoutes from './modules/marketplace/marketplace.routes';
 
 const app = express();
 
+// Trust Railway's reverse proxy so rate limiter reads the real client IP
+// (without this, every request appears to come from the same proxy IP)
+app.set('trust proxy', 1);
+
 // ─── Security & parsing ───────────────────────────────────────────────────────
 app.use(helmet());
 app.use(cors({ origin: process.env.CORS_ORIGIN ?? '*' }));
 app.use(express.json());
+
+// Prevent Railway/Fastly CDN from caching authenticated API responses.
+// Without this, GET requests are served from edge cache and bypass the
+// rate limiter, making the per-IP counters inaccurate.
+app.use('/api', (_req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store');
+  next();
+});
 
 // ─── Rate limiting ──────────────────────────────────────────────────────────
 // Global: 300 requests per 15 minutes per IP across all routes
